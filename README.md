@@ -8,21 +8,33 @@ The container bundles **CUPS** (printer driving), **Avahi** (Bonjour/mDNS advert
 2. the model is detected automatically (SNMP/IPP) and the recommended driver is pre-selected — manual search or PPD file as fallbacks;
 3. one click, and the printer shows up on all your Apple devices.
 
-## Install on CasaOS
+## Quick start
 
-1. In CasaOS, open the App Store → **Install a customized app** (`+` icon).
-2. Fill in:
-   - **Image**: `ghcr.io/moifort/airprint:latest`
-   - **Network**: `host` *(required — see below)*
-   - **Volume**: `/DATA/AppData/airprint/cups` → `/etc/cups`
-   - **Environment variable** (optional): `UI_PORT=8080`
-3. Install, then open `http://<server-ip>:8080`.
-
-Or with docker compose, from this repository:
+```yaml
+# docker-compose.yml
+services:
+  airprint:
+    image: ghcr.io/moifort/airprint:latest
+    container_name: airprint
+    # Required: AirPrint relies on mDNS (multicast), which does not
+    # cross Docker's bridge network.
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      UI_PORT: "8080"
+    volumes:
+      - /DATA/AppData/airprint/cups:/etc/cups
+```
 
 ```bash
 docker compose up -d
 ```
+
+Then open `http://<server-ip>:8080` and add your printer.
+
+### CasaOS
+
+App Store → **Install a customized app** (`+` icon) → paste the compose above (or fill in the same values: image `ghcr.io/moifort/airprint:latest`, network `host`, volume `/DATA/AppData/airprint/cups` → `/etc/cups`).
 
 ## Configuration
 
@@ -30,7 +42,15 @@ docker compose up -d
 |----------|---------|---------|
 | `UI_PORT` | `8080` | Web interface port |
 
-Port `631` (CUPS/IPP) is also exposed: the classic CUPS administration stays reachable at `http://<server-ip>:631` if needed.
+| Port | Purpose |
+|------|---------|
+| `${UI_PORT}` (8080) | Web interface |
+| `631` | CUPS/IPP — classic CUPS administration at `http://<server-ip>:631` |
+| `5353/udp` | mDNS (Avahi) — Bonjour announcements |
+
+| Volume | Purpose |
+|--------|---------|
+| `/etc/cups` | Printer configuration (persists queues across restarts) |
 
 ## Why host networking?
 
