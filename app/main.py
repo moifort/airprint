@@ -33,12 +33,15 @@ def _cups_call(fn, *args, **kwargs):
 
 
 def _match_drivers(make_model: str | None, device_id: str | None) -> list:
-    """Device-ID matching first (most reliable), make-and-model as fallback."""
+    """Device-ID matching first (most reliable), then make-and-model, then a
+    fuzzy search that catches family drivers (e.g. HL-1210W → HL-1200 series)."""
     drivers = []
     if device_id:
         drivers = _cups_call(cups_service.list_drivers, device_id=device_id)
     if not drivers and make_model:
         drivers = _cups_call(cups_service.list_drivers, make_model=make_model)
+    if not drivers and make_model:
+        drivers = _cups_call(cups_service.fuzzy_match_drivers, make_model)
     return drivers
 
 

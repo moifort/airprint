@@ -20,10 +20,10 @@ device for Salon: ipp://192.168.1.51/ipp/print
 """
 
 
-def fake_run(recorded, stdout="", returncode=0):
+def fake_run(recorded, stdout="", returncode=0, stderr=""):
     def _fake(cmd, **kwargs):
         recorded.append(cmd)
-        return subprocess.CompletedProcess(cmd, returncode, stdout=stdout, stderr="")
+        return subprocess.CompletedProcess(cmd, returncode, stdout=stdout, stderr=stderr)
     return _fake
 
 
@@ -61,6 +61,33 @@ def test_list_drivers_prefers_device_id(monkeypatch):
 def test_list_drivers_requires_criteria():
     with pytest.raises(cups_service.CupsError):
         cups_service.list_drivers()
+
+
+def test_list_drivers_no_match_returns_empty_list(monkeypatch):
+    # Real-world case: lpinfo exits 1 with client-error-not-found when no
+    # driver matches (e.g. Brother HL-1210W) — that is not an error
+    monkeypatch.setattr(subprocess, "run", fake_run(
+        [], returncode=1, stderr="lpinfo: client-error-not-found"
+    ))
+    assert cups_service.list_drivers(make_model="Brother HL-1210W series") == []
+
+
+FULL_LPINFO_OUTPUT = """\
+drv:///brlaser.drv/br1200.ppd Brother HL-1200 series, using brlaser v6
+drv:///brlaser.drv/br2030.ppd Brother HL-2030 series, using brlaser v6
+foomatic:Brother-HL-1250-hl1250.ppd Brother HL-1250 Foomatic/hl1250 (recommended)
+drv:///hpcups.drv/hp-laserjet_1320.ppd HP LaserJet 1320, hpcups 3.22.10
+everywhere IPP Everywhere
+"""
+
+
+def test_fuzzy_match_finds_family_driver(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", fake_run([], stdout=FULL_LPINFO_OUTPUT))
+    drivers = cups_service.fuzzy_match_drivers("Brother HL-1210W series")
+    ppds = [d["ppd"] for d in drivers]
+    assert "drv:///brlaser.drv/br1200.ppd" in ppds
+    assert "drv:///hpcups.drv/hp-laserjet_1320.ppd" not in ppds
+    assert "everywhere" not in ppds
 
 
 def test_add_printer_with_model(monkeypatch):

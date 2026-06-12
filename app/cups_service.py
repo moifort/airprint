@@ -4,6 +4,7 @@ Every queue is created shared (`printer-is-shared=true`): that sharing,
 combined with Avahi, is what makes queues visible over AirPrint.
 """
 
+import difflib
 import re
 import subprocess
 from pathlib import Path
@@ -66,8 +67,42 @@ def list_drivers(make_model: str | None = None, device_id: str | None = None) ->
         criteria = ["--make-and-model", make_model]
     else:
         raise CupsError("missing driver search criteria")
-    result = _run(["lpinfo", *criteria, "-m"])
+    try:
+        result = _run(["lpinfo", *criteria, "-m"])
+    except CupsError as exc:
+        # lpinfo exits 1 with client-error-not-found when nothing matches:
+        # that is an empty result, not a failure
+        if "client-error-not-found" in str(exc):
+            return []
+        raise
     return parse_lpinfo_output(result.stdout)
+
+
+def _normalize_model(name: str) -> str:
+    """Reduce a driver/printer name to its make-and-model core for comparison."""
+    name = name.partition(",")[0]
+    name = re.sub(r"foomatic/\S+|\(recommended\)|-?\s*cups\+gutenprint.*", "", name, flags=re.I)
+    name = re.sub(r"[^a-z0-9]+", " ", name.lower())
+    return name.replace(" series", "").strip()
+
+
+def fuzzy_match_drivers(make_model: str, limit: int = 10) -> list[dict]:
+    """Heuristic fallback when CUPS exact matching finds nothing.
+
+    Scores every installed driver against the printer model and keeps the
+    closest ones. Catches family drivers that exact matching misses, e.g.
+    a Brother HL-1210W is driven by the "HL-1200 series" brlaser entry."""
+    drivers = parse_lpinfo_output(_run(["lpinfo", "-m"]).stdout)
+    target = _normalize_model(make_model)
+    scored = []
+    for driver in drivers:
+        score = difflib.SequenceMatcher(
+            None, target, _normalize_model(driver["name"])
+        ).ratio()
+        if score >= 0.75:
+            scored.append((score, driver))
+    scored.sort(key=lambda item: -item[0])
+    return [driver for _, driver in scored[:limit]]
 
 
 def parse_lpstat(printers_output: str, devices_output: str) -> list[dict]:
