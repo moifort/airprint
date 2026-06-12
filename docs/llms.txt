@@ -1,0 +1,23 @@
+# AirPrint Bridge
+
+> A Docker container that makes any network printer visible over AirPrint to iPhone, iPad and Mac, even when the printer does not support AirPrint natively. It bundles CUPS, Avahi (Bonjour/mDNS) and the OpenPrinting driver database, driven by a minimal web UI (FastAPI + vanilla JS): printers are auto-detected on page load and added with one click.
+
+Key facts:
+
+- Image: `ghcr.io/moifort/airprint:main` (amd64 + arm64). Requires `network_mode: host` because Apple devices discover printers via mDNS multicast, which does not cross Docker's bridge network.
+- Web UI on `UI_PORT` (default 8080); classic CUPS administration on port 631; mDNS on 5353/udp. Persist `/etc/cups` to keep queues across restarts.
+- Discovery: SNMP broadcast on local subnets plus Bonjour (DNS-SD) listening, merged and deduplicated. Single-IP probing uses SNMP, then IPP Get-Printer-Attributes.
+- Driver matching order: IEEE 1284 device ID, then make-and-model against the bundled OpenPrinting database (Gutenprint, HPLIP, brlaser, SpliX, foomatic), then fuzzy family matching; manual fallbacks are free-text driver search and PPD upload.
+- AirPrint is simply a CUPS queue announced over mDNS by Avahi; there is no separate AirPrint protocol implementation.
+- Constraint: run only one mDNS responder per host, or printers flicker and get renamed (disable host avahi-daemon and other containers' embedded avahi).
+
+HTTP API (JSON): `GET /api/scan` (discover printers), `POST /api/detect` (probe one IP), `GET /api/drivers?q=&device_id=` (driver search), `GET/POST/DELETE /api/printers` (manage queues), `POST /api/printers/upload` (PPD upload), `POST /api/printers/{name}/test` (test page).
+
+## Docs
+
+- [README](https://github.com/moifort/airprint#readme): quick start (docker compose, CasaOS), configuration, troubleshooting, development
+- [Website](https://moifort.github.io/airprint/): what it solves and how it works
+
+## Source
+
+- [GitHub repository](https://github.com/moifort/airprint): FastAPI backend (`app/`), vanilla JS UI (`app/static/`), pytest suite (`tests/`)
