@@ -64,14 +64,14 @@ def test_create_printer(client, monkeypatch):
 
 def test_create_printer_cups_error_becomes_400(client, monkeypatch):
     def boom(*args, **kwargs):
-        raise cups_service.CupsError("lpadmin: imprimante injoignable")
+        raise cups_service.CupsError("lpadmin: printer unreachable")
 
     monkeypatch.setattr(cups_service, "add_printer", boom)
     res = client.post("/api/printers", json={
         "name": "X", "uri": "socket://1.2.3.4:9100", "ppd": "everywhere",
     })
     assert res.status_code == 400
-    assert "injoignable" in res.json()["detail"]
+    assert "unreachable" in res.json()["detail"]
 
 
 def test_delete_printer(client, monkeypatch):

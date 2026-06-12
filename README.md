@@ -1,24 +1,24 @@
 # AirPrint Bridge
 
-Rendez n'importe quelle imprimante réseau visible en **AirPrint** depuis vos Mac, iPhone et iPad — même si elle ne le supporte pas nativement.
+Make any network printer visible over **AirPrint** to your Mac, iPhone and iPad — even if it doesn't support it natively.
 
-Le conteneur embarque **CUPS** (pilotage de l'imprimante), **Avahi** (annonce Bonjour/mDNS) et la **base de drivers OpenPrinting** (Gutenprint, HPLIP, brlaser, SpliX, foomatic…), le tout piloté par une interface web minimaliste :
+The container bundles **CUPS** (printer driving), **Avahi** (Bonjour/mDNS advertisement) and the **OpenPrinting driver database** (Gutenprint, HPLIP, brlaser, SpliX, foomatic…), all driven by a minimalist web interface:
 
-1. entrez l'adresse IP de l'imprimante ;
-2. le modèle est détecté automatiquement (SNMP/IPP) et le driver recommandé est pré-sélectionné — recherche manuelle ou fichier PPD en repli ;
-3. un clic, et l'imprimante apparaît sur tous vos appareils Apple.
+1. enter the printer's IP address;
+2. the model is detected automatically (SNMP/IPP) and the recommended driver is pre-selected — manual search or PPD file as fallbacks;
+3. one click, and the printer shows up on all your Apple devices.
 
-## Installation sur CasaOS
+## Install on CasaOS
 
-1. Dans CasaOS, ouvrez l'App Store → **Install a customized app** (icône `+`).
-2. Renseignez :
-   - **Image** : `ghcr.io/moifort/airprint:latest`
-   - **Network** : `host` *(obligatoire — voir plus bas)*
-   - **Volume** : `/DATA/AppData/airprint/cups` → `/etc/cups`
-   - **Variable d'environnement** (optionnel) : `UI_PORT=8080`
-3. Installez, puis ouvrez `http://<ip-du-serveur>:8080`.
+1. In CasaOS, open the App Store → **Install a customized app** (`+` icon).
+2. Fill in:
+   - **Image**: `ghcr.io/moifort/airprint:latest`
+   - **Network**: `host` *(required — see below)*
+   - **Volume**: `/DATA/AppData/airprint/cups` → `/etc/cups`
+   - **Environment variable** (optional): `UI_PORT=8080`
+3. Install, then open `http://<server-ip>:8080`.
 
-Ou avec docker compose, depuis ce dépôt :
+Or with docker compose, from this repository:
 
 ```bash
 docker compose up -d
@@ -26,24 +26,24 @@ docker compose up -d
 
 ## Configuration
 
-| Variable | Défaut | Rôle |
-|----------|--------|------|
-| `UI_PORT` | `8080` | Port de l'interface web |
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `UI_PORT` | `8080` | Web interface port |
 
-Le port `631` (CUPS/IPP) est également exposé : l'administration CUPS classique reste accessible sur `http://<ip-du-serveur>:631` si besoin.
+Port `631` (CUPS/IPP) is also exposed: the classic CUPS administration stays reachable at `http://<server-ip>:631` if needed.
 
-## Pourquoi le mode réseau `host` ?
+## Why host networking?
 
-AirPrint repose sur le **mDNS** (multicast DNS, port 5353) : les appareils Apple découvrent les imprimantes en écoutant les annonces Bonjour sur le réseau local. Le réseau *bridge* de Docker ne laisse pas passer ce trafic multicast — sans `network_mode: host`, l'imprimante ne sera jamais visible.
+AirPrint relies on **mDNS** (multicast DNS, port 5353): Apple devices discover printers by listening to Bonjour announcements on the local network. Docker's *bridge* network does not pass that multicast traffic — without `network_mode: host`, the printer will never be visible.
 
-## Dépannage
+## Troubleshooting
 
-- **L'imprimante n'apparaît pas sur le Mac** : vérifiez le mode réseau `host`, puis sur un Mac lancez `dns-sd -B _ipp._tcp` — l'imprimante doit être listée. Vérifiez aussi que le serveur et le Mac sont sur le même réseau/VLAN.
-- **Conflit Avahi** : si l'hôte fait déjà tourner `avahi-daemon` (port 5353 occupé), le conteneur ne pourra pas annoncer les imprimantes. Désactivez l'avahi de l'hôte (`systemctl disable --now avahi-daemon`) ou utilisez-le pour publier les services.
-- **Modèle non détecté** : certaines imprimantes n'exposent ni SNMP ni IPP. Utilisez la recherche manuelle de driver (base OpenPrinting embarquée) ou fournissez le fichier PPD du constructeur.
-- **L'impression échoue malgré la détection** : essayez une autre connexion dans le sélecteur (`socket://` fonctionne sur la plupart des imprimantes, port 9100).
+- **The printer doesn't show up on the Mac**: check the `host` network mode, then run `dns-sd -B _ipp._tcp` on a Mac — the printer must be listed. Also make sure the server and the Mac are on the same network/VLAN.
+- **Avahi conflict**: if the host already runs `avahi-daemon` (port 5353 busy), the container won't be able to advertise printers. Disable the host's avahi (`systemctl disable --now avahi-daemon`) or use it to publish the services.
+- **Model not detected**: some printers expose neither SNMP nor IPP. Use the manual driver search (bundled OpenPrinting database) or provide the manufacturer's PPD file.
+- **Printing fails despite detection**: try another connection in the selector (`socket://` works on most printers, port 9100).
 
-## Développement
+## Development
 
 ```bash
 pip install -r requirements-dev.txt
@@ -53,4 +53,4 @@ docker build -t airprint .
 docker run --rm --network host airprint
 ```
 
-À chaque push sur `main` (et tag `v*`), l'image multi-architecture (amd64 + arm64) est publiée sur GHCR par GitHub Actions.
+On every push to `main` (and `v*` tag), the multi-architecture image (amd64 + arm64) is published to GHCR by GitHub Actions.

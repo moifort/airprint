@@ -1,10 +1,10 @@
-"""Sonde une imprimante réseau pour identifier son modèle et son URI.
+"""Probe a network printer to identify its model and connection URI.
 
-Deux mécanismes, dans l'ordre :
-1. le backend SNMP de CUPS (`/usr/lib/cups/backend/snmp <ip>`), qui interroge
-   l'imprimante et renvoie son URI de connexion et son make-and-model ;
-2. en repli, une requête IPP Get-Printer-Attributes via `ipptool` pour les
-   imprimantes qui parlent IPP mais pas SNMP.
+Two mechanisms, in order:
+1. the CUPS SNMP backend (`/usr/lib/cups/backend/snmp <ip>`), which queries
+   the printer and returns its device URI and make-and-model;
+2. as a fallback, an IPP Get-Printer-Attributes request through `ipptool`
+   for printers that speak IPP but not SNMP.
 """
 
 import re
@@ -19,9 +19,9 @@ _IPPTOOL_MAKE_MODEL = re.compile(r"printer-make-and-model \([^)]*\) = (.+)")
 
 
 def parse_snmp_output(output: str) -> dict | None:
-    """Extrait URI et make-and-model d'une sortie du backend SNMP de CUPS.
+    """Extract URI and make-and-model from CUPS SNMP backend output.
 
-    Format d'une ligne : `network <uri> "<make-and-model>" "<info>" "<device-id>" "<location>"`
+    Line format: `network <uri> "<make-and-model>" "<info>" "<device-id>" "<location>"`
     """
     for line in output.splitlines():
         try:
@@ -39,7 +39,7 @@ def parse_ipptool_output(output: str) -> str | None:
 
 
 def candidate_uris(ip: str, detected_uri: str | None = None) -> list[str]:
-    """URI détectée en premier, puis les protocoles réseau standards."""
+    """Detected URI first, then the standard network protocols."""
     uris = [
         f"socket://{ip}:9100",
         f"ipp://{ip}/ipp/print",
@@ -57,7 +57,7 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
 
 
 def probe(ip: str) -> dict:
-    """Renvoie {found, make_model, uris} pour l'imprimante à cette adresse."""
+    """Return {found, make_model, uris} for the printer at this address."""
     make_model = None
     detected_uri = None
 

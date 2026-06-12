@@ -1,7 +1,7 @@
-"""Pilotage de CUPS via ses outils en ligne de commande (lpadmin, lpinfo, lpstat).
+"""Drive CUPS through its command-line tools (lpadmin, lpinfo, lpstat).
 
-Toutes les files sont créées partagées (`printer-is-shared=true`) : c'est ce
-partage, combiné à Avahi, qui les rend visibles en AirPrint.
+Every queue is created shared (`printer-is-shared=true`): that sharing,
+combined with Avahi, is what makes queues visible over AirPrint.
 """
 
 import re
@@ -13,7 +13,7 @@ TESTPRINT = "/usr/share/cups/data/testprint"
 COMMAND_TIMEOUT = 60
 
 _VALID_QUEUE_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
-# lpstat écrit « printer X is idle » mais « printer X disabled » (sans « is »)
+# lpstat prints "printer X is idle" but "printer X disabled" (no "is")
 _LPSTAT_PRINTER = re.compile(r"^printer (\S+) (?:is )?(\w+)")
 _LPSTAT_DEVICE = re.compile(r"^device for (\S+): (.+)$")
 _PPD_NICKNAME = re.compile(r'^\*NickName:\s*"(.+)"')
@@ -32,21 +32,21 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
         env={"LC_ALL": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"},
     )
     if result.returncode != 0:
-        raise CupsError(result.stderr.strip() or f"échec de {cmd[0]}")
+        raise CupsError(result.stderr.strip() or f"{cmd[0]} failed")
     return result
 
 
 def queue_name(friendly_name: str) -> str:
-    """Convertit un nom libre en nom de file CUPS valide."""
+    """Convert a free-form name into a valid CUPS queue name."""
     name = friendly_name.strip().replace(" ", "_")
     name = re.sub(r"[^A-Za-z0-9_-]", "", name)
     if not name:
-        raise CupsError("nom d'imprimante invalide")
+        raise CupsError("invalid printer name")
     return name
 
 
 def parse_lpinfo_output(output: str) -> list[dict]:
-    """Une ligne lpinfo -m : `<ppd> <make and model>`."""
+    """One lpinfo -m line: `<ppd> <make and model>`."""
     drivers = []
     for line in output.splitlines():
         ppd, _, name = line.partition(" ")
@@ -56,7 +56,7 @@ def parse_lpinfo_output(output: str) -> list[dict]:
 
 
 def list_drivers(make_model: str) -> list[dict]:
-    """Drivers installés correspondant à un modèle, via le matching natif de CUPS."""
+    """Installed drivers matching a model, using CUPS' native matching."""
     result = _run(["lpinfo", "--make-and-model", make_model, "-m"])
     return parse_lpinfo_output(result.stdout)
 
@@ -89,7 +89,7 @@ def list_printers() -> list[dict]:
     try:
         printers_out = _run(["lpstat", "-p"]).stdout
     except CupsError:
-        # lpstat -p échoue quand aucune imprimante n'est configurée
+        # lpstat -p fails when no printer is configured
         return []
     devices_out = _run(["lpstat", "-v"]).stdout
     printers = parse_lpstat(printers_out, devices_out)
@@ -99,8 +99,8 @@ def list_printers() -> list[dict]:
 
 
 def add_printer(name: str, uri: str, ppd: str, description: str | None = None) -> str:
-    """Crée une file partagée. `ppd` est un nom de modèle lpinfo (-m) ou un
-    chemin de fichier PPD uploadé (-P)."""
+    """Create a shared queue. `ppd` is either an lpinfo model name (-m) or a
+    path to an uploaded PPD file (-P)."""
     queue = queue_name(name)
     ppd_flag = "-P" if ppd.startswith("/") else "-m"
     cmd = [
@@ -115,11 +115,11 @@ def add_printer(name: str, uri: str, ppd: str, description: str | None = None) -
 
 def delete_printer(name: str) -> None:
     if not _VALID_QUEUE_NAME.match(name):
-        raise CupsError("nom de file invalide")
+        raise CupsError("invalid queue name")
     _run(["lpadmin", "-x", name])
 
 
 def print_test_page(name: str) -> None:
     if not _VALID_QUEUE_NAME.match(name):
-        raise CupsError("nom de file invalide")
+        raise CupsError("invalid queue name")
     _run(["lp", "-d", name, TESTPRINT])

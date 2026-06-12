@@ -1,4 +1,4 @@
-"""API du pont AirPrint : détection d'imprimante, choix du driver, gestion des files."""
+"""AirPrint bridge API: printer detection, driver selection, queue management."""
 
 import shutil
 import tempfile

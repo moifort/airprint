@@ -2,8 +2,8 @@ FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# CUPS + Avahi pour l'annonce AirPrint, et la base de drivers OpenPrinting
-# packagée par Debian (foomatic, Gutenprint, HPLIP, brlaser, SpliX, foo2zjs…).
+# CUPS + Avahi for the AirPrint advertisement, plus the OpenPrinting driver
+# database as packaged by Debian (foomatic, Gutenprint, HPLIP, brlaser, SpliX, foo2zjs…).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         cups \
         cups-filters \
@@ -33,7 +33,7 @@ COPY requirements.txt ./
 RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 
 COPY cups/cupsd.conf /etc/cups/cupsd.conf
-# Squelette de config : restauré par l'entrypoint quand le volume /etc/cups est vide
+# Config skeleton: restored by the entrypoint when the /etc/cups volume is empty
 RUN cp -a /etc/cups /etc/cups-skel
 
 COPY app ./app

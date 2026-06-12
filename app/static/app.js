@@ -5,23 +5,23 @@ const state = { uris: [], drivers: [] };
 async function api(path, options = {}) {
   const res = await fetch(path, options);
   if (!res.ok) {
-    let detail = `Erreur ${res.status}`;
+    let detail = `Error ${res.status}`;
     try { detail = (await res.json()).detail || detail; } catch {}
     throw new Error(detail);
   }
   return res.status === 204 ? null : res.json();
 }
 
-// --- Liste des imprimantes -------------------------------------------------
+// --- Printer list ------------------------------------------------------------
 
-const STATE_LABELS = { idle: "Prête", printing: "Impression en cours", stopped: "Arrêtée" };
+const STATE_LABELS = { idle: "Ready", printing: "Printing", stopped: "Stopped" };
 
 async function refreshPrinters() {
   const list = $("printers-list");
   try {
     const printers = await api("/api/printers");
     if (printers.length === 0) {
-      list.innerHTML = `<p class="empty">Aucune imprimante partagée pour l'instant.</p>`;
+      list.innerHTML = `<p class="empty">No shared printer yet.</p>`;
       return;
     }
     list.innerHTML = printers.map((p) => `
@@ -35,8 +35,8 @@ async function refreshPrinters() {
           <span class="badge ${p.state === "stopped" ? "warn" : "ok"}">
             ${p.state === "stopped" ? "⚠︎" : "✓"} ${STATE_LABELS[p.state] || esc(p.state)} · AirPrint
           </span>
-          <button data-test="${esc(p.name)}">Page de test</button>
-          <button data-delete="${esc(p.name)}" class="danger">Supprimer</button>
+          <button data-test="${esc(p.name)}">Test page</button>
+          <button data-delete="${esc(p.name)}" class="danger">Delete</button>
         </div>
       </div>`).join("");
   } catch (err) {
@@ -51,9 +51,9 @@ document.addEventListener("click", async (e) => {
     if (test) {
       e.target.disabled = true;
       await api(`/api/printers/${encodeURIComponent(test)}/test`, { method: "POST" });
-      e.target.textContent = "Envoyée ✓";
-      setTimeout(() => { e.target.textContent = "Page de test"; e.target.disabled = false; }, 3000);
-    } else if (del && confirm(`Supprimer « ${del.replaceAll("_", " ")} » ?`)) {
+      e.target.textContent = "Sent ✓";
+      setTimeout(() => { e.target.textContent = "Test page"; e.target.disabled = false; }, 3000);
+    } else if (del && confirm(`Delete "${del.replaceAll("_", " ")}"?`)) {
       await api(`/api/printers/${encodeURIComponent(del)}`, { method: "DELETE" });
       refreshPrinters();
     }
@@ -63,7 +63,7 @@ document.addEventListener("click", async (e) => {
   }
 });
 
-// --- Wizard ----------------------------------------------------------------
+// --- Wizard ------------------------------------------------------------------
 
 function showError(message) {
   const el = $("wizard-error");
@@ -94,11 +94,11 @@ $("ip").addEventListener("keydown", (e) => { if (e.key === "Enter") detectPrinte
 
 async function detectPrinter() {
   const ip = $("ip").value.trim();
-  if (!ip) return showError("Entrez l'adresse IP de l'imprimante.");
+  if (!ip) return showError("Enter the printer's IP address.");
   showError("");
   const btn = $("detect-btn");
   btn.disabled = true;
-  btn.textContent = "Détection…";
+  btn.textContent = "Detecting…";
   try {
     const result = await api("/api/detect", {
       method: "POST",
@@ -110,15 +110,15 @@ async function detectPrinter() {
 
     if (result.found) {
       $("detect-result").innerHTML =
-        `<p class="success">✓ Imprimante détectée : <strong>${esc(result.make_model)}</strong></p>`;
+        `<p class="success">✓ Printer detected: <strong>${esc(result.make_model)}</strong></p>`;
       setDrivers(result.drivers);
       if (result.drivers.length === 0) {
         $("manual-search").open = true;
-        showError("Aucun driver embarqué ne correspond — essayez la recherche manuelle ou un fichier PPD.");
+        showError("No bundled driver matches — try the manual search or a PPD file.");
       }
     } else {
       $("detect-result").innerHTML =
-        `<p class="warn-text">Impossible d'identifier le modèle automatiquement. Recherchez le driver manuellement ci-dessous.</p>`;
+        `<p class="warn-text">Could not identify the model automatically. Search for the driver manually below.</p>`;
       setDrivers([]);
       $("manual-search").open = true;
     }
@@ -128,7 +128,7 @@ async function detectPrinter() {
     showError(err.message);
   } finally {
     btn.disabled = false;
-    btn.textContent = "Détecter";
+    btn.textContent = "Detect";
   }
 }
 
@@ -137,7 +137,7 @@ function setDrivers(drivers) {
   fillSelect(
     $("driver-select"),
     drivers.map((d) => ({ value: d.ppd, label: d.name })),
-    "— choisissez un driver —",
+    "— pick a driver —",
   );
 }
 
@@ -159,7 +159,7 @@ async function searchDrivers() {
   try {
     const drivers = await api(`/api/drivers?q=${encodeURIComponent(q)}`);
     if (drivers.length === 0) {
-      showError("Aucun driver trouvé pour cette recherche — essayez un fichier PPD.");
+      showError("No driver found for this search — try a PPD file.");
       return;
     }
     setDrivers(drivers);
@@ -174,13 +174,13 @@ $("create-btn").addEventListener("click", async () => {
   const ppd = $("driver-select").value;
   const ppdFile = $("ppd-file").files[0];
 
-  if (!name) return showError("Donnez un nom à l'imprimante.");
-  if (!ppd && !ppdFile) return showError("Choisissez un driver ou fournissez un fichier PPD.");
+  if (!name) return showError("Give the printer a name.");
+  if (!ppd && !ppdFile) return showError("Pick a driver or provide a PPD file.");
   showError("");
 
   const btn = $("create-btn");
   btn.disabled = true;
-  btn.textContent = "Configuration…";
+  btn.textContent = "Configuring…";
   try {
     if (ppdFile) {
       const form = new FormData();
@@ -201,11 +201,11 @@ $("create-btn").addEventListener("click", async () => {
     showError(err.message);
   } finally {
     btn.disabled = false;
-    btn.textContent = "Rendre accessible en AirPrint";
+    btn.textContent = "Make available over AirPrint";
   }
 });
 
-// --- Divers ----------------------------------------------------------------
+// --- Misc --------------------------------------------------------------------
 
 function esc(text) {
   const div = document.createElement("div");

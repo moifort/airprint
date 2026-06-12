@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,67 +9,67 @@
 <body>
   <header>
     <h1>🖨️ AirPrint Bridge</h1>
-    <p>Rendez vos imprimantes réseau visibles de tous vos appareils Apple.</p>
+    <p>Make your network printers visible to all your Apple devices.</p>
   </header>
 
   <main>
     <section id="printers-section">
       <div class="section-head">
-        <h2>Imprimantes partagées</h2>
-        <button id="show-wizard" class="primary">+ Ajouter une imprimante</button>
+        <h2>Shared printers</h2>
+        <button id="show-wizard" class="primary">+ Add a printer</button>
       </div>
       <div id="printers-list"></div>
     </section>
 
     <section id="wizard" class="card hidden">
-      <h2>Nouvelle imprimante</h2>
+      <h2>New printer</h2>
 
-      <!-- Étape 1 : adresse IP -->
+      <!-- Step 1: IP address -->
       <div class="step" id="step-1">
-        <label for="ip">Adresse IP de l'imprimante</label>
+        <label for="ip">Printer IP address</label>
         <div class="row">
           <input id="ip" type="text" placeholder="192.168.1.50" autocomplete="off">
-          <button id="detect-btn" class="primary">Détecter</button>
+          <button id="detect-btn" class="primary">Detect</button>
         </div>
-        <p class="hint">L'imprimante doit être allumée et connectée au même réseau.</p>
+        <p class="hint">The printer must be powered on and connected to the same network.</p>
       </div>
 
-      <!-- Étape 2 : driver -->
+      <!-- Step 2: driver -->
       <div class="step hidden" id="step-2">
         <div id="detect-result"></div>
 
-        <label for="driver-select">Driver CUPS</label>
+        <label for="driver-select">CUPS driver</label>
         <select id="driver-select"></select>
 
         <details id="manual-search">
-          <summary>Le bon driver n'est pas dans la liste ?</summary>
-          <label for="driver-query">Rechercher par marque et modèle</label>
+          <summary>Can't find the right driver in the list?</summary>
+          <label for="driver-query">Search by make and model</label>
           <div class="row">
-            <input id="driver-query" type="text" placeholder="ex : Brother HL-2030">
-            <button id="search-btn">Rechercher</button>
+            <input id="driver-query" type="text" placeholder="e.g. Brother HL-2030">
+            <button id="search-btn">Search</button>
           </div>
-          <label for="ppd-file" class="ppd-label">Ou fournir un fichier PPD</label>
+          <label for="ppd-file" class="ppd-label">Or provide a PPD file</label>
           <input id="ppd-file" type="file" accept=".ppd">
         </details>
 
-        <label for="uri-select">Connexion</label>
+        <label for="uri-select">Connection</label>
         <select id="uri-select"></select>
       </div>
 
-      <!-- Étape 3 : nom -->
+      <!-- Step 3: name -->
       <div class="step hidden" id="step-3">
-        <label for="printer-name">Nom de l'imprimante</label>
-        <input id="printer-name" type="text" placeholder="ex : Imprimante Bureau">
-        <button id="create-btn" class="primary big">Rendre accessible en AirPrint</button>
+        <label for="printer-name">Printer name</label>
+        <input id="printer-name" type="text" placeholder="e.g. Office Printer">
+        <button id="create-btn" class="primary big">Make available over AirPrint</button>
       </div>
 
       <p id="wizard-error" class="error hidden"></p>
-      <button id="cancel-wizard" class="link">Annuler</button>
+      <button id="cancel-wizard" class="link">Cancel</button>
     </section>
   </main>
 
   <footer>
-    <p>Propulsé par CUPS + Avahi · <a href=":631" id="cups-link">Administration CUPS</a></p>
+    <p>Powered by CUPS + Avahi · <a href=":631" id="cups-link">CUPS administration</a></p>
   </footer>
 
   <script src="app.js"></script>

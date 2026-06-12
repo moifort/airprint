@@ -54,7 +54,7 @@ h2 { font-size: 1.2rem; }
 
 .hidden { display: none !important; }
 
-/* Liste des imprimantes */
+/* Printer list */
 
 .printer {
   display: flex;
@@ -83,7 +83,7 @@ h2 { font-size: 1.2rem; }
 .empty, .hint { color: var(--muted); }
 .hint { font-size: 0.85rem; margin: 0.4rem 0 0; }
 
-/* Formulaires */
+/* Forms */
 
 label { display: block; font-weight: 600; font-size: 0.9rem; margin: 1rem 0 0.3rem; }
 

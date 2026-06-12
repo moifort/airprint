@@ -2,8 +2,8 @@ services:
   airprint:
     image: ghcr.io/moifort/airprint:latest
     container_name: airprint
-    # Indispensable : AirPrint repose sur le mDNS (multicast), qui ne
-    # traverse pas le réseau bridge de Docker.
+    # Required: AirPrint relies on mDNS (multicast), which does not
+    # cross Docker's bridge network.
     network_mode: host
     restart: unless-stopped
     environment:

@@ -1,2 +1,2 @@
-# Présent à la racine pour que pytest ajoute le dépôt au sys.path
-# (permet `from app import …` dans les tests).
+# Lives at the repo root so pytest adds it to sys.path
+# (lets tests do `from app import …`).
