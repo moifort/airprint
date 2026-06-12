@@ -14,8 +14,9 @@ TESTPRINT = "/usr/share/cups/data/testprint"
 COMMAND_TIMEOUT = 60
 
 _VALID_QUEUE_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
-# lpstat prints "printer X is idle" but "printer X disabled" (no "is")
-_LPSTAT_PRINTER = re.compile(r"^printer (\S+) (?:is )?(\w+)")
+# lpstat prints "printer X is idle", "printer X now printing X-1" and
+# "printer X disabled" — keep the state word, not the "is"/"now" filler
+_LPSTAT_PRINTER = re.compile(r"^printer (\S+) (?:is |now )?(\w+)")
 _LPSTAT_DEVICE = re.compile(r"^device for (\S+): (.+)$")
 _PPD_NICKNAME = re.compile(r'^\*NickName:\s*"(.+)"')
 
@@ -115,6 +116,43 @@ def parse_job_counts(jobs_output: str) -> dict[str, int]:
         if m := _LPSTAT_JOB.match(line):
             counts[m.group(1)] = counts.get(m.group(1), 0) + 1
     return counts
+
+
+_MODEL_NUMBER = re.compile(r"\d+")
+
+
+def _number_prefix_score(target: str, candidate: str) -> float:
+    """Similarity of the leading model numbers, by common prefix length.
+
+    Printer families share the number prefix (HL-1200 series drives the
+    HL-1210W); plain string similarity misses that and can rank an HL-2170W
+    driver above the HL-1200 one for an HL-1210W printer."""
+    t = _MODEL_NUMBER.search(target)
+    c = _MODEL_NUMBER.search(candidate)
+    if not t or not c:
+        return 0.0
+    common = 0
+    for a, b in zip(t.group(), c.group()):
+        if a != b:
+            break
+        common += 1
+    return common / max(len(t.group()), len(c.group()))
+
+
+def rank_drivers(drivers: list[dict], make_model: str) -> list[dict]:
+    """Order drivers by similarity to the printer model.
+
+    CUPS returns family matches in an arbitrary order and the UI picks the
+    first one; rank by model-number family first, full-name similarity as
+    tie-breaker."""
+    target = _normalize_model(make_model)
+
+    def score(driver: dict) -> float:
+        name = _normalize_model(driver["name"])
+        seq = difflib.SequenceMatcher(None, target, name).ratio()
+        return 0.5 * _number_prefix_score(target, name) + 0.5 * seq
+
+    return sorted(drivers, key=score, reverse=True)
 
 
 def parse_lpstat(printers_output: str, devices_output: str) -> list[dict]:

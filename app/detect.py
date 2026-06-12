@@ -139,6 +139,35 @@ def probe(ip: str) -> dict:
     }
 
 
+# avahi-browse escapes special chars as \DDD (decimal), e.g. \032 for space
+_AVAHI_ESCAPE = re.compile(r"\\(\d{3})")
+_DNSSD_INSTANCE = re.compile(r"^dnssd://([^/]+?)\._")
+
+
+def parse_avahi_browse(output: str) -> dict[str, str]:
+    """Map service instance name -> IPv4 address from `avahi-browse -rpt`.
+
+    Resolved line format:
+        =;<iface>;IPv4;<escaped instance>;<type>;<domain>;<host>;<address>;<port>;<txt>
+    """
+    addresses = {}
+    for line in output.splitlines():
+        parts = line.split(";")
+        if len(parts) >= 9 and parts[0] == "=" and parts[2] == "IPv4":
+            name = _AVAHI_ESCAPE.sub(lambda m: chr(int(m.group(1))), parts[3])
+            addresses[name] = parts[7]
+    return addresses
+
+
+def _resolve_dnssd_ips() -> dict[str, str]:
+    """Resolve every announced service to its IPv4 address through Avahi."""
+    try:
+        result = _run(["avahi-browse", "--all", "-rpt"], timeout=PROBE_TIMEOUT)
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return {}
+    return parse_avahi_browse(result.stdout)
+
+
 def _scan_entry(device: dict) -> dict | None:
     uri = device.get("uri", "")
     if device.get("class") != "network" or not uri.startswith(DISCOVERY_SCHEMES):
@@ -171,6 +200,19 @@ def scan() -> list[dict]:
         entry for device in parse_lpinfo_devices(result.stdout)
         if (entry := _scan_entry(device))
     ]
+
+    # DNS-SD discoveries carry a Bonjour name instead of an IP; resolve it so
+    # the queue can be driven over a direct, reliable transport (socket://ip).
+    if any(entry["ip"] is None for entry in entries):
+        resolved = _resolve_dnssd_ips()
+        for entry in entries:
+            if entry["ip"] is not None:
+                continue
+            m = _DNSSD_INSTANCE.match(entry["uri"])
+            instance = urllib.parse.unquote(m.group(1)) if m else None
+            if instance and (ip := resolved.get(instance)):
+                entry["ip"] = ip
+                entry["uris"] = candidate_uris(ip, entry["uri"])
 
     printers = []
     seen_ips = set()

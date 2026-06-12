@@ -42,6 +42,8 @@ def _match_drivers(make_model: str | None, device_id: str | None) -> list:
         drivers = _cups_call(cups_service.list_drivers, make_model=make_model)
     if not drivers and make_model:
         drivers = _cups_call(cups_service.fuzzy_match_drivers, make_model)
+    if drivers and make_model:
+        drivers = cups_service.rank_drivers(drivers, make_model)
     return drivers
 
 

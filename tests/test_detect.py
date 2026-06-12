@@ -1,3 +1,5 @@
+import subprocess
+
 from app import detect
 
 SNMP_LINE = (
@@ -102,3 +104,32 @@ def test_scan_filters_and_dedupes(monkeypatch):
     assert printers[0]["device_id"] == "MFG:HP;MDL:LaserJet 1320;"
     assert printers[0]["uris"][0] == "socket://192.168.1.50:9100"
     assert printers[1]["make_model"] == "Brother HL-L2350DW series"
+
+
+AVAHI_BROWSE_OUTPUT = """\
++;enp3s0;IPv4;Brother\\032HL-1210W\\032series;PDL Printer;local
+=;enp3s0;IPv4;Brother\\032HL-1210W\\032series;PDL Printer;local;BRNF0A654D315D4.local;192.168.1.146;9100;"UUID=e3248000" "ty=Brother HL-1210W series"
+=;enp3s0;IPv6;Ignored\\032v6;PDL Printer;local;BRNF0A654D315D4.local;fe80::1;9100;""
+"""
+
+
+def test_parse_avahi_browse_maps_instance_to_ipv4():
+    addresses = detect.parse_avahi_browse(AVAHI_BROWSE_OUTPUT)
+    assert addresses == {"Brother HL-1210W series": "192.168.1.146"}
+
+
+def test_scan_resolves_ip_less_dnssd_entries(monkeypatch):
+    lpinfo_output = (
+        "Device: uri = dnssd://Brother%20HL-1210W%20series._pdl-datastream._tcp.local/?uuid=e3248000\n"
+        "        class = network\n"
+        "        info = Brother HL-1210W series\n"
+        "        make-and-model = Brother HL-1210W series\n"
+        "        device-id = MFG:Brother;MDL:HL-1210W series;CMD:PJL,HBP;\n"
+    )
+    monkeypatch.setattr(detect, "_run", lambda cmd, timeout=0: subprocess.CompletedProcess(
+        cmd, 0, stdout=lpinfo_output if cmd[0] == "lpinfo" else AVAHI_BROWSE_OUTPUT, stderr=""
+    ))
+    printers = detect.scan()
+    assert printers[0]["ip"] == "192.168.1.146"
+    assert printers[0]["uris"][0] == "socket://192.168.1.146:9100"
+    assert printers[0]["uris"][-1].startswith("dnssd://")

@@ -136,3 +136,21 @@ def test_parse_job_counts():
 def test_cancel_jobs_rejects_bad_name():
     with pytest.raises(cups_service.CupsError):
         cups_service.cancel_jobs("éé; rm -rf /")
+
+
+def test_rank_drivers_puts_closest_model_first():
+    drivers = [
+        {"ppd": "foomatic:Brother-HL-2170W-hl1250.ppd", "name": "Brother HL-2170W Foomatic/hl1250"},
+        {"ppd": "drv:///brlaser.drv/br1200.ppd", "name": "Brother HL-1200 series, using brlaser v6"},
+        {"ppd": "gutenprint.5.3://brother-hl-1240/expert", "name": "Brother HL-1240 - CUPS+Gutenprint v5.3.4"},
+    ]
+    ranked = cups_service.rank_drivers(drivers, "Brother HL-1210W series")
+    assert ranked[0]["ppd"] == "drv:///brlaser.drv/br1200.ppd"
+
+
+def test_parse_lpstat_now_printing_state():
+    printers = cups_service.parse_lpstat(
+        "printer Atelier now printing Atelier-1.  enabled since Fri Jun 12 14:32:51 2026\n",
+        "device for Atelier: socket://192.168.1.146:9100\n",
+    )
+    assert printers == [{"name": "Atelier", "state": "printing", "uri": "socket://192.168.1.146:9100"}]
