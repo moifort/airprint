@@ -34,6 +34,9 @@ async function refreshPrinters() {
           <span class="badge ${p.state === "stopped" ? "warn" : "ok"}">
             ${p.state === "stopped" ? "⚠︎" : "✓"} ${STATE_LABELS[p.state] || esc(p.state)} · AirPrint
           </span>
+          ${p.jobs > 0 ? `
+          <span class="badge warn">${p.jobs} job${p.jobs > 1 ? "s" : ""} queued</span>
+          <button data-clear="${esc(p.name)}">Clear queue</button>` : ""}
           <button data-test="${esc(p.name)}">Test page</button>
           <button data-delete="${esc(p.name)}" class="danger">Delete</button>
         </div>
@@ -56,12 +59,17 @@ document.addEventListener("click", async (e) => {
   }
   const test = e.target.dataset.test;
   const del = e.target.dataset.delete;
+  const clear = e.target.dataset.clear;
   try {
     if (test) {
       e.target.disabled = true;
       await api(`/api/printers/${encodeURIComponent(test)}/test`, { method: "POST" });
       e.target.textContent = "Sent ✓";
       setTimeout(() => { e.target.textContent = "Test page"; e.target.disabled = false; }, 3000);
+    } else if (clear && confirm(`Cancel all pending jobs on "${clear.replaceAll("_", " ")}"?`)) {
+      e.target.disabled = true;
+      await api(`/api/printers/${encodeURIComponent(clear)}/jobs`, { method: "DELETE" });
+      refreshPrinters();
     } else if (del && confirm(`Delete "${del.replaceAll("_", " ")}"?`)) {
       await api(`/api/printers/${encodeURIComponent(del)}`, { method: "DELETE" });
       await refreshPrinters();

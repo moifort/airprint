@@ -116,3 +116,11 @@ def test_ui_served_at_root(client):
     res = client.get("/")
     assert res.status_code == 200
     assert "AirPrint Bridge" in res.text
+
+
+def test_clear_jobs(client, monkeypatch):
+    cleared = []
+    monkeypatch.setattr(cups_service, "cancel_jobs", cleared.append)
+    res = client.delete("/api/printers/Atelier/jobs")
+    assert res.status_code == 204
+    assert cleared == ["Atelier"]

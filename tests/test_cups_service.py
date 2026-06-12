@@ -122,3 +122,17 @@ def test_add_printer_raises_on_failure(monkeypatch):
 def test_delete_printer_rejects_bad_name():
     with pytest.raises(cups_service.CupsError):
         cups_service.delete_printer("foo; rm -rf /")
+
+
+def test_parse_job_counts():
+    output = (
+        "Atelier-1               mobile            8192   Fri Jun 12 14:32:48 2026\n"
+        "Atelier-2               thibaut          91136   Fri Jun 12 14:34:04 2026\n"
+        "Office_Printer-7        alice             1024   Fri Jun 12 15:00:00 2026\n"
+    )
+    assert cups_service.parse_job_counts(output) == {"Atelier": 2, "Office_Printer": 1}
+
+
+def test_cancel_jobs_rejects_bad_name():
+    with pytest.raises(cups_service.CupsError):
+        cups_service.cancel_jobs("éé; rm -rf /")

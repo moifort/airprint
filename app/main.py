@@ -101,6 +101,11 @@ def delete_printer(name: str):
     _cups_call(cups_service.delete_printer, name)
 
 
+@app.delete("/api/printers/{name}/jobs", status_code=204)
+def clear_jobs(name: str):
+    _cups_call(cups_service.cancel_jobs, name)
+
+
 @app.post("/api/printers/{name}/test")
 def print_test_page(name: str):
     _cups_call(cups_service.print_test_page, name)

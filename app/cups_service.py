@@ -105,6 +105,18 @@ def fuzzy_match_drivers(make_model: str, limit: int = 10) -> list[dict]:
     return [driver for _, driver in scored[:limit]]
 
 
+_LPSTAT_JOB = re.compile(r"^(\S+)-\d+\s")
+
+
+def parse_job_counts(jobs_output: str) -> dict[str, int]:
+    """Pending job count per queue from `lpstat -o` (lines `<queue>-<id> …`)."""
+    counts: dict[str, int] = {}
+    for line in jobs_output.splitlines():
+        if m := _LPSTAT_JOB.match(line):
+            counts[m.group(1)] = counts.get(m.group(1), 0) + 1
+    return counts
+
+
 def parse_lpstat(printers_output: str, devices_output: str) -> list[dict]:
     devices = dict(
         m.groups() for line in devices_output.splitlines()
@@ -137,8 +149,13 @@ def list_printers() -> list[dict]:
         return []
     devices_out = _run(["lpstat", "-v"]).stdout
     printers = parse_lpstat(printers_out, devices_out)
+    try:
+        jobs = parse_job_counts(_run(["lpstat", "-o"]).stdout)
+    except CupsError:
+        jobs = {}
     for printer in printers:
         printer["make_model"] = _ppd_nickname(printer["name"])
+        printer["jobs"] = jobs.get(printer["name"], 0)
     return printers
 
 
@@ -161,6 +178,13 @@ def delete_printer(name: str) -> None:
     if not _VALID_QUEUE_NAME.match(name):
         raise CupsError("invalid queue name")
     _run(["lpadmin", "-x", name])
+
+
+def cancel_jobs(name: str) -> None:
+    """Cancel every pending job on the queue (rescue for stuck queues)."""
+    if not _VALID_QUEUE_NAME.match(name):
+        raise CupsError("invalid queue name")
+    _run(["cancel", "-a", name])
 
 
 def print_test_page(name: str) -> None:
