@@ -16,9 +16,17 @@
     <section id="printers-section">
       <div class="section-head">
         <h2>Shared printers</h2>
-        <button id="show-wizard" class="primary">+ Add a printer</button>
+        <button id="show-wizard">Add manually</button>
       </div>
       <div id="printers-list"></div>
+    </section>
+
+    <section id="detected-section">
+      <div class="section-head">
+        <h2>Detected on your network</h2>
+        <button id="rescan-btn">Rescan</button>
+      </div>
+      <div id="detected-list"></div>
     </section>
 
     <section id="wizard" class="card hidden">
@@ -26,17 +34,12 @@
 
       <!-- Step 1: find the printer -->
       <div class="step" id="step-1">
-        <button id="scan-btn" class="primary big">🔍 Scan the network for printers</button>
-        <div id="scan-results"></div>
+        <label for="ip">Printer IP address</label>
+        <div class="row manual-ip-row">
+          <input id="ip" type="text" placeholder="192.168.1.50" autocomplete="off">
+          <button id="detect-btn">Detect</button>
+        </div>
         <p class="hint">The printer must be powered on and connected to the same network.</p>
-
-        <details id="manual-ip">
-          <summary>Printer not found? Enter its IP address manually</summary>
-          <div class="row manual-ip-row">
-            <input id="ip" type="text" placeholder="192.168.1.50" autocomplete="off">
-            <button id="detect-btn">Detect</button>
-          </div>
-        </details>
       </div>
 
       <!-- Step 2: driver -->

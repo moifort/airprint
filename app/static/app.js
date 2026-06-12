@@ -1,6 +1,6 @@
 const $ = (id) => document.getElementById(id);
 
-const state = { uris: [], drivers: [], scanned: [] };
+const state = { uris: [], drivers: [], scanned: [], shared: [] };
 
 async function api(path, options = {}) {
   const res = await fetch(path, options);
@@ -19,17 +19,16 @@ const STATE_LABELS = { idle: "Ready", printing: "Printing", stopped: "Stopped" }
 async function refreshPrinters() {
   const list = $("printers-list");
   try {
-    const printers = await api("/api/printers");
-    if (printers.length === 0) {
+    state.shared = await api("/api/printers");
+    if (state.shared.length === 0) {
       list.innerHTML = `<p class="empty">No shared printer yet.</p>`;
       return;
     }
-    list.innerHTML = printers.map((p) => `
+    list.innerHTML = state.shared.map((p) => `
       <div class="card printer">
         <div class="printer-info">
           <strong>${esc(p.name.replaceAll("_", " "))}</strong>
           <span class="model">${esc(p.make_model || "")}</span>
-          <span class="uri">${esc(p.uri || "")}</span>
         </div>
         <div class="printer-actions">
           <span class="badge ${p.state === "stopped" ? "warn" : "ok"}">
@@ -45,9 +44,14 @@ async function refreshPrinters() {
 }
 
 document.addEventListener("click", async (e) => {
-  const scanIndex = e.target.closest("[data-scan]")?.dataset.scan;
-  if (scanIndex !== undefined) {
-    selectScanned(state.scanned[Number(scanIndex)]);
+  const add = e.target.closest("[data-add]");
+  if (add) {
+    addDetected(Number(add.dataset.add));
+    return;
+  }
+  const manual = e.target.closest("[data-manual]");
+  if (manual) {
+    configureManually(Number(manual.dataset.manual));
     return;
   }
   const test = e.target.dataset.test;
@@ -60,13 +64,135 @@ document.addEventListener("click", async (e) => {
       setTimeout(() => { e.target.textContent = "Test page"; e.target.disabled = false; }, 3000);
     } else if (del && confirm(`Delete "${del.replaceAll("_", " ")}"?`)) {
       await api(`/api/printers/${encodeURIComponent(del)}`, { method: "DELETE" });
-      refreshPrinters();
+      await refreshPrinters();
+      renderDetected();
     }
   } catch (err) {
     alert(err.message);
     e.target.disabled = false;
   }
 });
+
+// --- Network scan --------------------------------------------------------------
+
+$("rescan-btn").addEventListener("click", scanNetwork);
+
+async function scanNetwork() {
+  const btn = $("rescan-btn");
+  btn.disabled = true;
+  $("detected-list").innerHTML = `
+    <p class="scanning"><span class="spinner"></span> Scanning your network for printers… (up to 30 s)</p>`;
+  try {
+    state.scanned = await api("/api/scan");
+    renderDetected();
+  } catch (err) {
+    $("detected-list").innerHTML = `<p class="error">${esc(err.message)}</p>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function hostOf(uri) {
+  try { return new URL(uri).hostname || null; } catch { return null; }
+}
+
+function renderDetected() {
+  const sharedHosts = new Set(state.shared.map((p) => hostOf(p.uri)).filter(Boolean));
+  const detected = state.scanned
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => !p.uris.some((u) => sharedHosts.has(hostOf(u))));
+  if (detected.length === 0) {
+    $("detected-list").innerHTML = `
+      <p class="empty">No new printer detected on the network. Use “Add manually” if yours is missing.</p>`;
+    return;
+  }
+  $("detected-list").innerHTML = detected.map(({ p, i }) => `
+    <div class="card printer" data-card="${i}">
+      <div class="printer-info">
+        <strong>${esc(p.make_model)}</strong>
+        <span class="model">${esc(p.ip || "")}</span>
+      </div>
+      <div class="printer-actions">
+        <button class="primary" data-add="${i}">Add</button>
+      </div>
+    </div>`).join("");
+}
+
+// --- One-click add -------------------------------------------------------------
+
+const ADD_STEPS = [
+  "Finding the best driver",
+  "Installing driver and configuring the print queue",
+  "Publishing over AirPrint",
+];
+
+async function addDetected(index) {
+  const printer = state.scanned[index];
+  const card = document.querySelector(`[data-card="${index}"]`);
+  if (!printer || !card) return;
+  try {
+    renderAddProgress(card, printer, 0);
+    const params = new URLSearchParams();
+    if (printer.make_model) params.set("q", printer.make_model);
+    if (printer.device_id) params.set("device_id", printer.device_id);
+    const drivers = await api(`/api/drivers?${params}`);
+    if (drivers.length === 0) {
+      renderAddError(card, index,
+        "No bundled driver matches this printer — configure it manually with a driver search or a PPD file.");
+      return;
+    }
+    renderAddProgress(card, printer, 1);
+    await api("/api/printers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: printer.make_model, uri: printer.uris[0], ppd: drivers[0].ppd }),
+    });
+    renderAddProgress(card, printer, 2);
+    await refreshPrinters();
+    renderAddProgress(card, printer, ADD_STEPS.length);
+    setTimeout(renderDetected, 2500);
+  } catch (err) {
+    renderAddError(card, index, err.message);
+  }
+}
+
+function renderAddProgress(card, printer, current) {
+  const done = current >= ADD_STEPS.length;
+  card.innerHTML = `
+    <div class="printer-info">
+      <strong>${esc(printer.make_model)}</strong>
+      <ul class="steps">
+        ${ADD_STEPS.map((label, i) => {
+          if (i < current) return `<li class="done">✓ ${label}</li>`;
+          if (i === current) return `<li class="active"><span class="spinner"></span> ${label}…</li>`;
+          return `<li>○ ${label}</li>`;
+        }).join("")}
+      </ul>
+      ${done ? `<span class="success">✓ Now available on your Apple devices.</span>` : ""}
+    </div>`;
+}
+
+function renderAddError(card, index, message) {
+  const printer = state.scanned[index];
+  card.innerHTML = `
+    <div class="printer-info">
+      <strong>${esc(printer.make_model)}</strong>
+      <span class="error">${esc(message)}</span>
+    </div>
+    <div class="printer-actions">
+      <button data-add="${index}">Retry</button>
+      <button data-manual="${index}">Configure manually</button>
+    </div>`;
+}
+
+function configureManually(index) {
+  const printer = state.scanned[index];
+  resetWizard();
+  $("wizard").classList.remove("hidden");
+  $("printer-name").value = printer.make_model || "";
+  selectScanned(printer);
+  $("wizard").scrollIntoView({ behavior: "smooth" });
+}
 
 // --- Wizard ------------------------------------------------------------------
 
@@ -83,39 +209,7 @@ function resetWizard() {
   $("printer-name").value = "";
   $("ppd-file").value = "";
   $("detect-result").innerHTML = "";
-  $("scan-results").innerHTML = "";
-  $("manual-ip").open = false;
   showError("");
-}
-
-// --- Network scan --------------------------------------------------------------
-
-$("scan-btn").addEventListener("click", scanNetwork);
-
-async function scanNetwork() {
-  showError("");
-  const btn = $("scan-btn");
-  btn.disabled = true;
-  btn.textContent = "Scanning the network… (up to 30 s)";
-  try {
-    state.scanned = await api("/api/scan");
-    if (state.scanned.length === 0) {
-      $("scan-results").innerHTML =
-        `<p class="warn-text">No printer found on the network. Enter its IP address below.</p>`;
-      $("manual-ip").open = true;
-    } else {
-      $("scan-results").innerHTML = state.scanned.map((p, i) => `
-        <button class="scan-result" data-scan="${i}">
-          <strong>${esc(p.make_model)}</strong>
-          <span class="uri">${esc(p.ip || p.uri)}</span>
-        </button>`).join("");
-    }
-  } catch (err) {
-    showError(err.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "🔍 Scan the network for printers";
-  }
 }
 
 async function selectScanned(printer) {
@@ -258,7 +352,8 @@ $("create-btn").addEventListener("click", async () => {
       });
     }
     $("wizard").classList.add("hidden");
-    refreshPrinters();
+    await refreshPrinters();
+    renderDetected();
   } catch (err) {
     showError(err.message);
   } finally {
@@ -278,4 +373,5 @@ function esc(text) {
 $("cups-link").href = `http://${location.hostname}:631`;
 
 refreshPrinters();
+scanNetwork();
 setInterval(refreshPrinters, 15000);
