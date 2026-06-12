@@ -52,6 +52,22 @@ App Store → **Install a customized app** (`+` icon) → paste the compose abov
 |--------|---------|
 | `/etc/cups` | Printer configuration (persists queues across restarts) |
 
+## How network auto-detection works
+
+Clicking **Scan the network** runs every CUPS discovery backend (`lpinfo -v`) from inside the container:
+
+- **SNMP broadcast** — a probe is sent to the broadcast address of every local subnet; virtually all network printers answer with their model, connection URI and IEEE 1284 device ID. This is how printers that predate Bonjour are found.
+- **DNS-SD / Bonjour** — Avahi listens for printers announcing themselves over mDNS (`_pdl-datastream`, `_ipp`, `_printer`).
+
+Results from both sources are merged and deduplicated (by IP, then by model). Selecting a printer triggers the driver matching, in order of reliability:
+
+1. **IEEE 1284 device ID** (`MFG:Brother;MDL:HL-1210W series;…`) — the identifier printers embed for exact driver lookup;
+2. **make-and-model** — CUPS' native name matching against the bundled OpenPrinting database;
+3. **fuzzy family matching** — when nothing matches exactly, the closest driver names are proposed; this catches *family* drivers (a Brother HL-1210W is driven by the brlaser «HL-1200 series» entry);
+4. **manual fallbacks** — free-text driver search, or uploading the manufacturer's PPD file.
+
+Detection by IP (the manual field under the scan button) uses the same SNMP probe against a single address, with an IPP Get-Printer-Attributes query as fallback.
+
 ## Why host networking?
 
 AirPrint relies on **mDNS** (multicast DNS, port 5353): Apple devices discover printers by listening to Bonjour announcements on the local network. Docker's *bridge* network does not pass that multicast traffic — without `network_mode: host`, the printer will never be visible.
