@@ -133,6 +133,26 @@ button.link {
   padding: 0;
 }
 
+/* Network scan results */
+
+#scan-results { margin-top: 0.75rem; }
+
+.scan-result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 0.5rem;
+  padding: 0.65rem 0.9rem;
+}
+
+.scan-result:hover { border-color: var(--accent); }
+
+.scan-result .uri { color: var(--muted); font-size: 0.8rem; font-family: ui-monospace, monospace; }
+
+.manual-ip-row { margin-top: 0.5rem; }
+
 details { margin-top: 0.75rem; }
 summary { color: var(--accent); cursor: pointer; font-size: 0.9rem; }
 .ppd-label { margin-top: 0.75rem; }

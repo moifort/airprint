@@ -1,6 +1,6 @@
 const $ = (id) => document.getElementById(id);
 
-const state = { uris: [], drivers: [] };
+const state = { uris: [], drivers: [], scanned: [] };
 
 async function api(path, options = {}) {
   const res = await fetch(path, options);
@@ -45,6 +45,11 @@ async function refreshPrinters() {
 }
 
 document.addEventListener("click", async (e) => {
+  const scanIndex = e.target.closest("[data-scan]")?.dataset.scan;
+  if (scanIndex !== undefined) {
+    selectScanned(state.scanned[Number(scanIndex)]);
+    return;
+  }
   const test = e.target.dataset.test;
   const del = e.target.dataset.delete;
   try {
@@ -78,7 +83,64 @@ function resetWizard() {
   $("printer-name").value = "";
   $("ppd-file").value = "";
   $("detect-result").innerHTML = "";
+  $("scan-results").innerHTML = "";
+  $("manual-ip").open = false;
   showError("");
+}
+
+// --- Network scan --------------------------------------------------------------
+
+$("scan-btn").addEventListener("click", scanNetwork);
+
+async function scanNetwork() {
+  showError("");
+  const btn = $("scan-btn");
+  btn.disabled = true;
+  btn.textContent = "Scanning the network… (up to 30 s)";
+  try {
+    state.scanned = await api("/api/scan");
+    if (state.scanned.length === 0) {
+      $("scan-results").innerHTML =
+        `<p class="warn-text">No printer found on the network. Enter its IP address below.</p>`;
+      $("manual-ip").open = true;
+    } else {
+      $("scan-results").innerHTML = state.scanned.map((p, i) => `
+        <button class="scan-result" data-scan="${i}">
+          <strong>${esc(p.make_model)}</strong>
+          <span class="uri">${esc(p.ip || p.uri)}</span>
+        </button>`).join("");
+    }
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "🔍 Scan the network for printers";
+  }
+}
+
+async function selectScanned(printer) {
+  showError("");
+  $("detect-result").innerHTML =
+    `<p class="success">✓ Selected printer: <strong>${esc(printer.make_model)}</strong></p>`;
+  fillSelect($("uri-select"), printer.uris.map((u) => ({ value: u, label: u })));
+  state.uris = printer.uris;
+
+  const params = new URLSearchParams();
+  if (printer.make_model) params.set("q", printer.make_model);
+  if (printer.device_id) params.set("device_id", printer.device_id);
+  try {
+    const drivers = await api(`/api/drivers?${params}`);
+    setDrivers(drivers);
+    if (drivers.length === 0) {
+      $("manual-search").open = true;
+      showError("No bundled driver matches — try the manual search or a PPD file.");
+    }
+  } catch (err) {
+    setDrivers([]);
+    showError(err.message);
+  }
+  $("step-2").classList.remove("hidden");
+  $("step-3").classList.remove("hidden");
 }
 
 $("show-wizard").addEventListener("click", () => {

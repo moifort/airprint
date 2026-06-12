@@ -4,8 +4,8 @@ Make any network printer visible over **AirPrint** to your Mac, iPhone and iPad 
 
 The container bundles **CUPS** (printer driving), **Avahi** (Bonjour/mDNS advertisement) and the **OpenPrinting driver database** (Gutenprint, HPLIP, brlaser, SpliX, foomatic…), all driven by a minimalist web interface:
 
-1. enter the printer's IP address;
-2. the model is detected automatically (SNMP/IPP) and the recommended driver is pre-selected — manual search or PPD file as fallbacks;
+1. scan the network — printers are discovered automatically (SNMP broadcast + Bonjour), or enter an IP manually;
+2. the recommended driver is pre-selected (matched by IEEE 1284 device ID, with make-and-model as fallback) — manual search or PPD file as last resorts;
 3. one click, and the printer shows up on all your Apple devices.
 
 ## Quick start

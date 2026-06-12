@@ -32,11 +32,29 @@ def _cups_call(fn, *args, **kwargs):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _match_drivers(make_model: str | None, device_id: str | None) -> list:
+    """Device-ID matching first (most reliable), make-and-model as fallback."""
+    drivers = []
+    if device_id:
+        drivers = _cups_call(cups_service.list_drivers, device_id=device_id)
+    if not drivers and make_model:
+        drivers = _cups_call(cups_service.list_drivers, make_model=make_model)
+    return drivers
+
+
+@app.get("/api/scan")
+def scan_network():
+    try:
+        return detect.scan()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"network scan failed: {exc}") from exc
+
+
 @app.post("/api/detect")
 def detect_printer(req: DetectRequest):
     result = detect.probe(req.ip.strip())
     result["drivers"] = (
-        _cups_call(cups_service.list_drivers, result["make_model"])
+        _match_drivers(result["make_model"], result.get("device_id"))
         if result["found"]
         else []
     )
@@ -44,10 +62,10 @@ def detect_printer(req: DetectRequest):
 
 
 @app.get("/api/drivers")
-def search_drivers(q: str):
-    if not q.strip():
+def search_drivers(q: str | None = None, device_id: str | None = None):
+    if not (q and q.strip()) and not device_id:
         return []
-    return _cups_call(cups_service.list_drivers, q.strip())
+    return _match_drivers(q.strip() if q else None, device_id)
 
 
 @app.get("/api/printers")

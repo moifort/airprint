@@ -55,9 +55,18 @@ def parse_lpinfo_output(output: str) -> list[dict]:
     return drivers
 
 
-def list_drivers(make_model: str) -> list[dict]:
-    """Installed drivers matching a model, using CUPS' native matching."""
-    result = _run(["lpinfo", "--make-and-model", make_model, "-m"])
+def list_drivers(make_model: str | None = None, device_id: str | None = None) -> list[dict]:
+    """Installed drivers matching a printer, using CUPS' native matching.
+
+    Matching by IEEE 1284 device ID is far more reliable than by
+    make-and-model; use it whenever the printer reported one."""
+    if device_id:
+        criteria = ["--device-id", device_id]
+    elif make_model:
+        criteria = ["--make-and-model", make_model]
+    else:
+        raise CupsError("missing driver search criteria")
+    result = _run(["lpinfo", *criteria, "-m"])
     return parse_lpinfo_output(result.stdout)
 
 

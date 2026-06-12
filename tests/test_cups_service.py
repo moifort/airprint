@@ -51,6 +51,18 @@ def test_queue_name_sanitizes():
         cups_service.queue_name("///")
 
 
+def test_list_drivers_prefers_device_id(monkeypatch):
+    calls = []
+    monkeypatch.setattr(subprocess, "run", fake_run(calls, stdout=LPINFO_OUTPUT))
+    cups_service.list_drivers(make_model="HP LaserJet 1320", device_id="MFG:HP;MDL:LaserJet 1320;")
+    assert calls[0] == ["lpinfo", "--device-id", "MFG:HP;MDL:LaserJet 1320;", "-m"]
+
+
+def test_list_drivers_requires_criteria():
+    with pytest.raises(cups_service.CupsError):
+        cups_service.list_drivers()
+
+
 def test_add_printer_with_model(monkeypatch):
     calls = []
     monkeypatch.setattr(subprocess, "run", fake_run(calls))

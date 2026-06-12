@@ -13,9 +13,10 @@ def test_detect_returns_drivers_when_found(client, monkeypatch):
     monkeypatch.setattr(detect, "probe", lambda ip: {
         "found": True,
         "make_model": "HP LaserJet 1320",
+        "device_id": None,
         "uris": ["socket://192.168.1.50:9100"],
     })
-    monkeypatch.setattr(cups_service, "list_drivers", lambda mm: [
+    monkeypatch.setattr(cups_service, "list_drivers", lambda **kw: [
         {"ppd": "drv:///hpcups.drv/hp-laserjet_1320.ppd", "name": "HP LaserJet 1320"},
     ])
     res = client.post("/api/detect", json={"ip": "192.168.1.50"})
@@ -27,11 +28,40 @@ def test_detect_returns_drivers_when_found(client, monkeypatch):
 
 def test_detect_not_found_returns_empty_drivers(client, monkeypatch):
     monkeypatch.setattr(detect, "probe", lambda ip: {
-        "found": False, "make_model": None, "uris": ["socket://10.0.0.9:9100"],
+        "found": False, "make_model": None, "device_id": None,
+        "uris": ["socket://10.0.0.9:9100"],
     })
     body = client.post("/api/detect", json={"ip": "10.0.0.9"}).json()
     assert body["found"] is False
     assert body["drivers"] == []
+
+
+def test_scan_endpoint(client, monkeypatch):
+    monkeypatch.setattr(detect, "scan", lambda: [
+        {"uri": "socket://192.168.1.50:9100", "ip": "192.168.1.50",
+         "make_model": "HP LaserJet 1320", "device_id": None,
+         "uris": ["socket://192.168.1.50:9100"]},
+    ])
+    res = client.get("/api/scan")
+    assert res.status_code == 200
+    assert res.json()[0]["ip"] == "192.168.1.50"
+
+
+def test_drivers_fall_back_to_make_model_when_device_id_matches_nothing(client, monkeypatch):
+    calls = []
+
+    def fake_list_drivers(make_model=None, device_id=None):
+        calls.append({"make_model": make_model, "device_id": device_id})
+        return [] if device_id else [{"ppd": "everywhere", "name": "IPP Everywhere"}]
+
+    monkeypatch.setattr(cups_service, "list_drivers", fake_list_drivers)
+    res = client.get("/api/drivers", params={"q": "HP X", "device_id": "MFG:HP;"})
+    assert res.status_code == 200
+    assert res.json() == [{"ppd": "everywhere", "name": "IPP Everywhere"}]
+    assert calls == [
+        {"make_model": None, "device_id": "MFG:HP;"},
+        {"make_model": "HP X", "device_id": None},
+    ]
 
 
 def test_list_printers(client, monkeypatch):

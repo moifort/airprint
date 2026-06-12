@@ -24,14 +24,19 @@
     <section id="wizard" class="card hidden">
       <h2>New printer</h2>
 
-      <!-- Step 1: IP address -->
+      <!-- Step 1: find the printer -->
       <div class="step" id="step-1">
-        <label for="ip">Printer IP address</label>
-        <div class="row">
-          <input id="ip" type="text" placeholder="192.168.1.50" autocomplete="off">
-          <button id="detect-btn" class="primary">Detect</button>
-        </div>
+        <button id="scan-btn" class="primary big">🔍 Scan the network for printers</button>
+        <div id="scan-results"></div>
         <p class="hint">The printer must be powered on and connected to the same network.</p>
+
+        <details id="manual-ip">
+          <summary>Printer not found? Enter its IP address manually</summary>
+          <div class="row manual-ip-row">
+            <input id="ip" type="text" placeholder="192.168.1.50" autocomplete="off">
+            <button id="detect-btn">Detect</button>
+          </div>
+        </details>
       </div>
 
       <!-- Step 2: driver -->

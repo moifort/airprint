@@ -18,6 +18,7 @@ def test_parse_snmp_output():
     assert result == {
         "uri": "socket://192.168.1.50",
         "make_model": "HP LaserJet 1320",
+        "device_id": "MFG:Hewlett-Packard;MDL:hp LaserJet 1320;",
     }
 
 
@@ -44,3 +45,52 @@ def test_candidate_uris_no_duplicate():
     uris = detect.candidate_uris("192.168.1.50", "socket://192.168.1.50:9100")
     assert uris.count("socket://192.168.1.50:9100") == 1
     assert uris[0] == "socket://192.168.1.50:9100"
+
+
+LPINFO_L_OUTPUT = """\
+Device: uri = socket://192.168.1.50:9100
+        class = network
+        info = HP LaserJet 1320
+        make-and-model = HP LaserJet 1320
+        device-id = MFG:HP;MDL:LaserJet 1320;
+        location =
+Device: uri = dnssd://HP%20LaserJet%201320._pdl-datastream._tcp.local/
+        class = network
+        info = HP LaserJet 1320
+        make-and-model = HP LaserJet 1320
+        device-id =
+        location =
+Device: uri = ipp
+        class = network
+        info = Internet Printing Protocol (ipp)
+        make-and-model = Unknown
+        device-id =
+        location =
+Device: uri = ipp://192.168.1.60/ipp/print
+        class = network
+        info = Brother HL-L2350DW
+        make-and-model = Brother HL-L2350DW series
+        device-id = MFG:Brother;MDL:HL-L2350DW series;
+        location =
+"""
+
+
+def test_parse_lpinfo_devices():
+    devices = detect.parse_lpinfo_devices(LPINFO_L_OUTPUT)
+    assert len(devices) == 4
+    assert devices[0]["uri"] == "socket://192.168.1.50:9100"
+    assert devices[0]["device-id"] == "MFG:HP;MDL:LaserJet 1320;"
+    assert devices[2]["uri"] == "ipp"
+
+
+def test_scan_filters_and_dedupes(monkeypatch):
+    monkeypatch.setattr(detect, "_run", lambda cmd, timeout=0: type(
+        "P", (), {"stdout": LPINFO_L_OUTPUT}
+    )())
+    printers = detect.scan()
+    # The bare "ipp" backend template is filtered out; the dnssd entry is a
+    # duplicate of the SNMP one (same make-and-model) and must be dropped.
+    assert [p["ip"] for p in printers] == ["192.168.1.50", "192.168.1.60"]
+    assert printers[0]["device_id"] == "MFG:HP;MDL:LaserJet 1320;"
+    assert printers[0]["uris"][0] == "socket://192.168.1.50:9100"
+    assert printers[1]["make_model"] == "Brother HL-L2350DW series"
