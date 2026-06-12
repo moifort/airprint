@@ -75,7 +75,7 @@ AirPrint relies on **mDNS** (multicast DNS, port 5353): Apple devices discover p
 ## Troubleshooting
 
 - **The printer doesn't show up on the Mac**: check the `host` network mode, then run `dns-sd -B _ipp._tcp` on a Mac — the printer must be listed. Also make sure the server and the Mac are on the same network/VLAN.
-- **Avahi conflict**: if the host already runs `avahi-daemon` (port 5353 busy), the container won't be able to advertise printers. Disable the host's avahi (`systemctl disable --now avahi-daemon`) or use it to publish the services.
+- **The printer appears then disappears, or shows up as `name @ host-34`**: another mDNS responder on the same host is fighting over the records. Because every responder on the host shares the same IP, two mDNS daemons inevitably conflict on the reverse-PTR record (`x.x.x.x.in-addr.arpa`) and rename each other in a loop. Run only **one** mDNS responder per host: disable the host's avahi (`systemctl disable --now avahi-daemon`) and the embedded avahi of other containers (e.g. Homebridge: set `ENABLE_AVAHI=0` — its HomeKit advertiser does not need it).
 - **Model not detected**: some printers expose neither SNMP nor IPP. Use the manual driver search (bundled OpenPrinting database) or provide the manufacturer's PPD file.
 - **Printing fails despite detection**: try another connection in the selector (`socket://` works on most printers, port 9100).
 

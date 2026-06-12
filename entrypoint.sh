@@ -11,6 +11,15 @@ fi
 mkdir -p /run/dbus
 rm -f /run/dbus/pid /run/avahi-daemon/pid
 
+# Avahi must announce only on the LAN interface: announcing on Docker's
+# virtual bridges (docker0, br-*, veth*) publishes unreachable 172.x
+# addresses for the host name, which breaks AirPrint clients and feeds
+# mDNS name conflicts. The LAN interface is the one holding the default route.
+LAN_IF=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+if [ -n "${LAN_IF}" ]; then
+    sed -i "s/^#\?allow-interfaces=.*/allow-interfaces=${LAN_IF}/" /etc/avahi/avahi-daemon.conf
+fi
+
 dbus-daemon --system
 avahi-daemon --daemonize --no-drop-root
 
