@@ -76,14 +76,21 @@ def parse_lpinfo_devices(output: str) -> list[dict]:
 
 
 def candidate_uris(ip: str, detected_uri: str | None = None) -> list[str]:
-    """Detected URI first, then the standard network protocols."""
+    """Detected URI first, then the standard network protocols.
+
+    Exception: dnssd URIs go last — they require live mDNS resolution on
+    every job, which breaks as soon as the printer's Bonjour name changes;
+    direct IP transport is far more reliable."""
     uris = [
         f"socket://{ip}:9100",
         f"ipp://{ip}/ipp/print",
         f"lpd://{ip}/queue",
     ]
     if detected_uri and detected_uri not in uris:
-        uris.insert(0, detected_uri)
+        if detected_uri.startswith("dnssd://"):
+            uris.append(detected_uri)
+        else:
+            uris.insert(0, detected_uri)
     return uris
 
 

@@ -36,9 +36,17 @@ def test_parse_ipptool_output():
 
 
 def test_candidate_uris_puts_detected_first():
-    uris = detect.candidate_uris("192.168.1.50", "dnssd://printer._pdl-datastream")
-    assert uris[0] == "dnssd://printer._pdl-datastream"
+    uris = detect.candidate_uris("192.168.1.50", "ipps://192.168.1.50/ipp/print")
+    assert uris[0] == "ipps://192.168.1.50/ipp/print"
     assert "socket://192.168.1.50:9100" in uris
+
+
+def test_candidate_uris_puts_dnssd_last():
+    """dnssd URIs need live mDNS resolution on every job — direct IP transport
+    is far more reliable, so a discovered dnssd URI goes last, not first."""
+    uris = detect.candidate_uris("192.168.1.50", "dnssd://printer._pdl-datastream")
+    assert uris[0] == "socket://192.168.1.50:9100"
+    assert uris[-1] == "dnssd://printer._pdl-datastream"
 
 
 def test_candidate_uris_no_duplicate():
