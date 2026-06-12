@@ -1,0 +1,12 @@
+services:
+  airprint:
+    image: ghcr.io/moifort/airprint:latest
+    container_name: airprint
+    # Indispensable : AirPrint repose sur le mDNS (multicast), qui ne
+    # traverse pas le réseau bridge de Docker.
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      UI_PORT: "8080"
+    volumes:
+      - /DATA/AppData/airprint/cups:/etc/cups

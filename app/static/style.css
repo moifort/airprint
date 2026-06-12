@@ -1,0 +1,151 @@
+:root {
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --text: #1c1c1e;
+  --muted: #6e6e73;
+  --accent: #0071e3;
+  --accent-dark: #0058b3;
+  --danger: #d70015;
+  --ok: #1e7e34;
+  --warn: #b25000;
+  --radius: 12px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+header {
+  text-align: center;
+  padding: 2.5rem 1rem 1rem;
+}
+
+header h1 { margin: 0; font-size: 1.8rem; }
+header p { margin: 0.3rem 0 0; color: var(--muted); }
+
+main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+h2 { font-size: 1.2rem; }
+
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 8%);
+}
+
+.hidden { display: none !important; }
+
+/* Liste des imprimantes */
+
+.printer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.printer-info { display: flex; flex-direction: column; }
+.printer-info .model { color: var(--muted); font-size: 0.9rem; }
+.printer-info .uri { color: var(--muted); font-size: 0.78rem; font-family: ui-monospace, monospace; }
+
+.printer-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+
+.badge {
+  font-size: 0.8rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  background: #e3f4e8;
+  color: var(--ok);
+}
+
+.badge.warn { background: #fdeede; color: var(--warn); }
+
+.empty, .hint { color: var(--muted); }
+.hint { font-size: 0.85rem; margin: 0.4rem 0 0; }
+
+/* Formulaires */
+
+label { display: block; font-weight: 600; font-size: 0.9rem; margin: 1rem 0 0.3rem; }
+
+input[type="text"], select {
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  font-size: 1rem;
+  border: 1px solid #d2d2d7;
+  border-radius: 8px;
+  background: #fff;
+}
+
+input:focus, select:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+.row { display: flex; gap: 0.5rem; }
+.row input { flex: 1; }
+
+button {
+  font-size: 0.95rem;
+  padding: 0.55rem 1rem;
+  border: 1px solid #d2d2d7;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+button:hover { background: #f0f0f2; }
+button:disabled { opacity: 0.6; cursor: default; }
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.primary:hover { background: var(--accent-dark); }
+
+button.big { width: 100%; margin-top: 1.25rem; padding: 0.75rem; font-size: 1.05rem; }
+
+button.danger { color: var(--danger); }
+
+button.link {
+  border: none;
+  background: none;
+  color: var(--muted);
+  margin-top: 0.75rem;
+  padding: 0;
+}
+
+details { margin-top: 0.75rem; }
+summary { color: var(--accent); cursor: pointer; font-size: 0.9rem; }
+.ppd-label { margin-top: 0.75rem; }
+
+.success { color: var(--ok); margin: 0.75rem 0 0; }
+.warn-text { color: var(--warn); margin: 0.75rem 0 0; }
+.error { color: var(--danger); margin: 0.75rem 0 0; }
+
+footer {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 1.5rem;
+}
+
+footer a { color: var(--muted); }
