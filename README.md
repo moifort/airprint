@@ -14,7 +14,7 @@ The container bundles **CUPS** (printer driving), **Avahi** (Bonjour/mDNS advert
 # docker-compose.yml
 services:
   airprint:
-    image: ghcr.io/moifort/airprint:latest
+    image: ghcr.io/moifort/airprint:main
     container_name: airprint
     # Required: AirPrint relies on mDNS (multicast), which does not
     # cross Docker's bridge network.
@@ -34,7 +34,7 @@ Then open `http://<server-ip>:8080` and add your printer.
 
 ### CasaOS
 
-App Store → **Install a customized app** (`+` icon) → paste the compose above (or fill in the same values: image `ghcr.io/moifort/airprint:latest`, network `host`, volume `/DATA/AppData/airprint/cups` → `/etc/cups`).
+App Store → **Install a customized app** (`+` icon) → paste the compose above (or fill in the same values: image `ghcr.io/moifort/airprint:main`, network `host`, volume `/DATA/AppData/airprint/cups` → `/etc/cups`).
 
 ## Configuration
 

@@ -1,6 +1,6 @@
 services:
   airprint:
-    image: ghcr.io/moifort/airprint:latest
+    image: ghcr.io/moifort/airprint:main
     container_name: airprint
     # Required: AirPrint relies on mDNS (multicast), which does not
     # cross Docker's bridge network.
