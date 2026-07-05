@@ -25,14 +25,24 @@ class CupsError(Exception):
     pass
 
 
+class CupsTimeout(CupsError):
+    pass
+
+
 def _run(cmd: list[str]) -> subprocess.CompletedProcess:
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=COMMAND_TIMEOUT,
-        env={"LC_ALL": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"},
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=COMMAND_TIMEOUT,
+            env={"LC_ALL": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"},
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise CupsTimeout(f"{cmd[0]} timed out after {COMMAND_TIMEOUT}s") from exc
+    except FileNotFoundError as exc:
+        raise CupsError(f"{cmd[0]} not found") from exc
     if result.returncode != 0:
         raise CupsError(result.stderr.strip() or f"{cmd[0]} failed")
     return result
@@ -185,7 +195,10 @@ def list_printers() -> list[dict]:
     except CupsError:
         # lpstat -p fails when no printer is configured
         return []
-    devices_out = _run(["lpstat", "-v"]).stdout
+    try:
+        devices_out = _run(["lpstat", "-v"]).stdout
+    except CupsError:
+        devices_out = ""
     printers = parse_lpstat(printers_out, devices_out)
     try:
         jobs = parse_job_counts(_run(["lpstat", "-o"]).stdout)
@@ -197,7 +210,7 @@ def list_printers() -> list[dict]:
     return printers
 
 
-def add_printer(name: str, uri: str, ppd: str, description: str | None = None) -> str:
+def add_printer(name: str, uri: str, ppd: str) -> str:
     """Create a shared queue. `ppd` is either an lpinfo model name (-m) or a
     path to an uploaded PPD file (-P)."""
     queue = queue_name(name)
@@ -205,10 +218,15 @@ def add_printer(name: str, uri: str, ppd: str, description: str | None = None) -
     cmd = [
         "lpadmin", "-p", queue, "-E", "-v", uri, ppd_flag, ppd,
         "-o", "printer-is-shared=true",
-        "-D", description or name,
+        "-D", name,
     ]
     _run(cmd)
-    _run(["cupsctl", "--share-printers"])
+    try:
+        # Redundant with the entrypoint; the queue exists either way, so a
+        # failure here must not report the whole creation as failed.
+        _run(["cupsctl", "--share-printers"])
+    except CupsError:
+        pass
     return queue
 
 

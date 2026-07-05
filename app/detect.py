@@ -10,6 +10,7 @@ Scanning the whole network relies on `lpinfo -v`, which runs every CUPS
 discovery backend (SNMP broadcast, DNS-SD/Bonjour…).
 """
 
+import ipaddress
 import re
 import shlex
 import subprocess
@@ -97,13 +98,16 @@ def candidate_uris(ip: str, detected_uri: str | None = None) -> list[str]:
 def _host_ip(uri: str) -> str | None:
     try:
         host = urllib.parse.urlsplit(uri).hostname
+        ipaddress.ip_address(host or "")
     except ValueError:
         return None
-    return host if host and re.fullmatch(r"[0-9.]+", host) else None
+    return host
 
 
 def _run(cmd: list[str], timeout: int = PROBE_TIMEOUT) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(
+        cmd, capture_output=True, encoding="utf-8", errors="replace", timeout=timeout
+    )
 
 
 def probe(ip: str) -> dict:

@@ -148,6 +148,51 @@ def test_rank_drivers_puts_closest_model_first():
     assert ranked[0]["ppd"] == "drv:///brlaser.drv/br1200.ppd"
 
 
+def test_run_timeout_becomes_cups_timeout(monkeypatch):
+    # The most common real-world failure: lpadmin blocking on an unreachable
+    # device must surface as a clean CupsTimeout, not a raw TimeoutExpired.
+    def raise_timeout(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, 60)
+
+    monkeypatch.setattr(subprocess, "run", raise_timeout)
+    with pytest.raises(cups_service.CupsTimeout):
+        cups_service.add_printer("X", "socket://1.2.3.4:9100", "everywhere")
+
+
+def test_run_missing_binary_becomes_cups_error(monkeypatch):
+    def raise_missing(cmd, **kwargs):
+        raise FileNotFoundError(cmd[0])
+
+    monkeypatch.setattr(subprocess, "run", raise_missing)
+    with pytest.raises(cups_service.CupsError):
+        cups_service.delete_printer("Bureau")
+
+
+def test_add_printer_tolerates_cupsctl_failure(monkeypatch):
+    # The queue is created before cupsctl runs; a cupsctl hiccup must not
+    # report the whole creation as failed.
+    def selective(cmd, **kwargs):
+        rc = 1 if cmd[0] == "cupsctl" else 0
+        return subprocess.CompletedProcess(cmd, rc, stdout="", stderr="oops")
+
+    monkeypatch.setattr(subprocess, "run", selective)
+    assert cups_service.add_printer("X", "socket://1.2.3.4:9100", "everywhere") == "X"
+
+
+def test_list_printers_tolerates_lpstat_v_failure(monkeypatch):
+    def selective(cmd, **kwargs):
+        if cmd == ["lpstat", "-v"]:
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="fail")
+        if cmd == ["lpstat", "-p"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=LPSTAT_P, stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", selective)
+    printers = cups_service.list_printers()
+    assert [p["name"] for p in printers] == ["Bureau", "Salon"]
+    assert printers[0]["uri"] is None
+
+
 def test_parse_lpstat_now_printing_state():
     printers = cups_service.parse_lpstat(
         "printer Atelier now printing Atelier-1.  enabled since Fri Jun 12 14:32:51 2026\n",

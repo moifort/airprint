@@ -1,33 +1,72 @@
 """AirPrint bridge API: printer detection, driver selection, queue management."""
 
-import shutil
+import ipaddress
 import tempfile
+import threading
+from concurrent.futures import Future
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from . import cups_service, detect
 
 app = FastAPI(title="AirPrint Bridge")
 
 UPLOADED_PPD_DIR = Path(tempfile.gettempdir()) / "airprint-ppds"
+MAX_PPD_SIZE = 2 * 1024 * 1024  # PPDs are tens of KB; 2 MB is generous
+PPD_MAGIC = b"*PPD-Adobe"
+
+
+def _check_uri(uri: str) -> str:
+    uri = uri.strip()
+    if not uri.startswith(detect.DISCOVERY_SCHEMES):
+        raise ValueError(
+            "uri must use one of: " + ", ".join(detect.DISCOVERY_SCHEMES)
+        )
+    return uri
 
 
 class DetectRequest(BaseModel):
     ip: str
 
+    @field_validator("ip")
+    @classmethod
+    def _valid_ip(cls, value: str) -> str:
+        value = value.strip()
+        try:
+            ipaddress.ip_address(value)
+        except ValueError:
+            raise ValueError("ip must be a valid IPv4 or IPv6 address") from None
+        return value
+
 
 class PrinterCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1)
     uri: str
-    ppd: str
+    ppd: str = Field(min_length=1)
+
+    @field_validator("uri")
+    @classmethod
+    def _valid_uri(cls, value: str) -> str:
+        return _check_uri(value)
+
+    @field_validator("ppd")
+    @classmethod
+    def _model_only(cls, value: str) -> str:
+        # File paths are reserved for the upload route; the JSON route only
+        # accepts lpinfo model names, never local filesystem paths.
+        if value.startswith("/"):
+            raise ValueError("ppd must be a driver model name, not a file path")
+        return value
 
 
 def _cups_call(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
+    except cups_service.CupsTimeout as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
     except cups_service.CupsError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -47,17 +86,46 @@ def _match_drivers(make_model: str | None, device_id: str | None) -> list:
     return drivers
 
 
+# A network scan holds a worker thread for up to 45 s; when several clients
+# ask at once (multiple tabs), share a single underlying scan between them.
+_scan_lock = threading.Lock()
+_scan_future: Future | None = None
+
+
+def _shared_scan() -> list:
+    global _scan_future
+    with _scan_lock:
+        joined = _scan_future
+        if joined is None:
+            future = _scan_future = Future()
+    if joined is not None:
+        return joined.result()
+    try:
+        result = detect.scan()
+        future.set_result(result)
+        return result
+    except BaseException as exc:
+        future.set_exception(exc)
+        raise
+    finally:
+        with _scan_lock:
+            _scan_future = None
+
+
 @app.get("/api/scan")
 def scan_network():
     try:
-        return detect.scan()
+        return _shared_scan()
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"network scan failed: {exc}") from exc
 
 
 @app.post("/api/detect")
 def detect_printer(req: DetectRequest):
-    result = detect.probe(req.ip.strip())
+    try:
+        result = detect.probe(req.ip)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"printer probe failed: {exc}") from exc
     result["drivers"] = (
         _match_drivers(result["make_model"], result.get("device_id"))
         if result["found"]
@@ -69,7 +137,7 @@ def detect_printer(req: DetectRequest):
 @app.get("/api/drivers")
 def search_drivers(q: str | None = None, device_id: str | None = None):
     if not (q and q.strip()) and not device_id:
-        return []
+        raise HTTPException(status_code=422, detail="q or device_id is required")
     return _match_drivers(q.strip() if q else None, device_id)
 
 
@@ -90,11 +158,33 @@ def create_printer(printer: PrinterCreate):
 def create_printer_with_ppd(
     name: str = Form(...), uri: str = Form(...), ppd_file: UploadFile = File(...)
 ):
+    try:
+        uri = _check_uri(uri)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     UPLOADED_PPD_DIR.mkdir(parents=True, exist_ok=True)
-    ppd_path = UPLOADED_PPD_DIR / f"{cups_service.queue_name(name)}.ppd"
-    with ppd_path.open("wb") as out:
-        shutil.copyfileobj(ppd_file.file, out)
-    queue = _cups_call(cups_service.add_printer, name, uri, str(ppd_path))
+    ppd_path = UPLOADED_PPD_DIR / f"{_cups_call(cups_service.queue_name, name)}.ppd"
+    try:
+        with ppd_path.open("wb") as out:
+            size = 0
+            while chunk := ppd_file.file.read(64 * 1024):
+                if size == 0 and not chunk.startswith(PPD_MAGIC):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="not a PPD file (must start with *PPD-Adobe)",
+                    )
+                size += len(chunk)
+                if size > MAX_PPD_SIZE:
+                    raise HTTPException(
+                        status_code=413, detail="PPD file too large (2 MB max)"
+                    )
+                out.write(chunk)
+            if size == 0:
+                raise HTTPException(status_code=400, detail="empty PPD file")
+        queue = _cups_call(cups_service.add_printer, name, uri, str(ppd_path))
+    finally:
+        # lpadmin copies the PPD into /etc/cups/ppd; the temp file is disposable
+        ppd_path.unlink(missing_ok=True)
     return {"queue": queue}
 
 

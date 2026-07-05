@@ -57,6 +57,13 @@ def test_candidate_uris_no_duplicate():
     assert uris[0] == "socket://192.168.1.50:9100"
 
 
+def test_host_ip_validates_addresses():
+    assert detect._host_ip("socket://192.168.1.50:9100") == "192.168.1.50"
+    assert detect._host_ip("socket://1.2.3.4.5:9100") is None
+    assert detect._host_ip("dnssd://printer._ipp._tcp.local/") is None
+    assert detect._host_ip("not a uri") is None
+
+
 LPINFO_L_OUTPUT = """\
 Device: uri = socket://192.168.1.50:9100
         class = network
