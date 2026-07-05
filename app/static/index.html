@@ -16,9 +16,10 @@
     <section id="printers-section">
       <div class="section-head">
         <h2>Shared printers</h2>
-        <button id="show-wizard">Add manually</button>
+        <button id="show-wizard" aria-expanded="false" aria-controls="wizard">Add manually</button>
       </div>
-      <div id="printers-list"></div>
+      <p id="printers-error" class="error hidden" role="alert"></p>
+      <div id="printers-list" aria-live="polite"></div>
     </section>
 
     <section id="detected-section">
@@ -26,7 +27,7 @@
         <h2>Detected on your network</h2>
         <button id="rescan-btn">Rescan</button>
       </div>
-      <div id="detected-list"></div>
+      <div id="detected-list" aria-live="polite"></div>
     </section>
 
     <section id="wizard" class="card hidden">
@@ -71,7 +72,7 @@
         <button id="create-btn" class="primary big">Make available over AirPrint</button>
       </div>
 
-      <p id="wizard-error" class="error hidden"></p>
+      <p id="wizard-error" class="error hidden" role="alert"></p>
       <button id="cancel-wizard" class="link">Cancel</button>
     </section>
   </main>

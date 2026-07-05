@@ -111,6 +111,7 @@ button {
 
 button:hover { background: #f0f0f2; }
 button:disabled { opacity: 0.6; cursor: default; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 button.primary {
   background: var(--accent);
@@ -123,6 +124,7 @@ button.primary:hover { background: var(--accent-dark); }
 button.big { width: 100%; margin-top: 1.25rem; padding: 0.75rem; font-size: 1.05rem; }
 
 button.danger { color: var(--danger); }
+button.danger:hover { background: #fdeaec; border-color: var(--danger); }
 
 button.link {
   border: none;
@@ -177,6 +179,9 @@ summary { color: var(--accent); cursor: pointer; font-size: 0.9rem; }
 .success { color: var(--ok); margin: 0.75rem 0 0; }
 .warn-text { color: var(--warn); margin: 0.75rem 0 0; }
 .error { color: var(--danger); margin: 0.75rem 0 0; }
+
+/* Inline error appended to a printer card by showCardError() */
+.card-error { flex-basis: 100%; margin: 0.25rem 0 0; font-size: 0.9rem; }
 
 footer {
   text-align: center;
