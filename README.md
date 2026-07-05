@@ -55,6 +55,10 @@ The container bundles **CUPS** (the printing system), **Avahi** (Bonjour/mDNS) a
 | Port `5353/udp` | mDNS (Avahi) — Bonjour announcements |
 | Volume `/etc/cups` | Printer configuration (persists queues across restarts) |
 
+### Security note
+
+The web UI has **no authentication**: anyone who can reach port `8080` can add, delete or reconfigure printers. It is designed for a trusted home LAN — do not expose the port to the internet or an untrusted network (put a reverse proxy with authentication in front if you need remote access).
+
 ## Troubleshooting
 
 - **The printer doesn't show up on the Mac**: check the `host` network mode, then run `dns-sd -B _ipp._tcp` on a Mac — the printer must be listed. Also make sure the server and the Mac are on the same network/VLAN.
