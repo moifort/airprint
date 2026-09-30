@@ -38,7 +38,9 @@ cupsctl --share-printers
 
 # Queues created before the retry-job default: a printer switched off for a
 # moment would leave them stopped with every AirPrint job stuck.
-for queue in $(lpstat -e 2>/dev/null); do
+# Local queues only: `lpstat -e` also lists destinations discovered over
+# DNS-SD (including our own queues, re-seen as "<name>_airprint").
+for queue in $(lpstat -p 2>/dev/null | awk '$1 == "printer" {print $2}'); do
     lpadmin -p "$queue" -o printer-error-policy=retry-job || true
 done
 
