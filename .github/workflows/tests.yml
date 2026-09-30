@@ -5,6 +5,8 @@ on:
     branches: ["**"]
     tags: ["v*"]
   pull_request:
+  # Gate for the Docker image: docker-publish.yml calls this workflow first
+  workflow_call:
 
 jobs:
   test:
@@ -13,6 +15,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
+          # Matches python3 in debian:trixie-slim (Dockerfile)
           python-version: "3.13"
       - run: pip install -r requirements-dev.txt
       - run: pytest -q
