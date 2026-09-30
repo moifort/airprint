@@ -4,7 +4,7 @@ Probing a known IP uses two mechanisms, in order:
 1. the CUPS SNMP backend (`/usr/lib/cups/backend/snmp <ip>`), which queries
    the printer and returns its device URI, make-and-model and device ID;
 2. as a fallback, an IPP Get-Printer-Attributes request through `ipptool`
-   for printers that speak IPP but not SNMP.
+   for printers that speak IPP but not SNMP, on the usual resource paths.
 
 Scanning the whole network relies on `lpinfo -v`, which runs every CUPS
 discovery backend (SNMP broadcast, DNS-SD/Bonjour…).
@@ -23,6 +23,9 @@ PROBE_TIMEOUT = 15
 SCAN_DISCOVERY_SECONDS = "10"
 SCAN_TIMEOUT = 45
 DISCOVERY_SCHEMES = ("socket://", "ipp://", "ipps://", "lpd://", "dnssd://")
+# IPP Everywhere mandates /ipp/print, but many printers only answer on
+# /ipp (Brother, Canon) or /ipp/printer (older HP)
+IPP_PATHS = ("ipp/print", "ipp", "ipp/printer")
 
 _IPPTOOL_MAKE_MODEL = re.compile(r"printer-make-and-model \([^)]*\) = (.+)")
 
@@ -76,16 +79,22 @@ def parse_lpinfo_devices(output: str) -> list[dict]:
     return devices
 
 
+def _uri_host(ip: str) -> str:
+    """IPv6 literals must be bracketed inside a URI."""
+    return f"[{ip}]" if ":" in ip else ip
+
+
 def candidate_uris(ip: str, detected_uri: str | None = None) -> list[str]:
     """Detected URI first, then the standard network protocols.
 
     Exception: dnssd URIs go last — they require live mDNS resolution on
     every job, which breaks as soon as the printer's Bonjour name changes;
     direct IP transport is far more reliable."""
+    host = _uri_host(ip)
     uris = [
-        f"socket://{ip}:9100",
-        f"ipp://{ip}/ipp/print",
-        f"lpd://{ip}/queue",
+        f"socket://{host}:9100",
+        f"ipp://{host}/ipp/print",
+        f"lpd://{host}/queue",
     ]
     if detected_uri and detected_uri not in uris:
         if detected_uri.startswith("dnssd://"):
@@ -127,13 +136,16 @@ def probe(ip: str) -> dict:
         pass
 
     if not make_model:
-        try:
-            result = _run(["ipptool", "-tv", f"ipp://{ip}/ipp/print", IPPTOOL_TEST])
-            make_model = parse_ipptool_output(result.stdout)
-            if make_model:
-                detected_uri = f"ipp://{ip}/ipp/print"
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
+        for path in IPP_PATHS:
+            uri = f"ipp://{_uri_host(ip)}/{path}"
+            try:
+                result = _run(["ipptool", "-tv", uri, IPPTOOL_TEST])
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                # Unreachable host or no ipptool: other paths would fail too
+                break
+            if make_model := parse_ipptool_output(result.stdout):
+                detected_uri = uri
+                break
 
     return {
         "found": make_model is not None,
@@ -200,6 +212,9 @@ def scan() -> list[dict]:
         ["lpinfo", "-l", "--timeout", SCAN_DISCOVERY_SECONDS, "-v"],
         timeout=SCAN_TIMEOUT,
     )
+    # An empty result from a broken CUPS must not read as "no printer found"
+    if result.returncode != 0 and "not-found" not in result.stderr:
+        raise RuntimeError(result.stderr.strip() or "lpinfo failed")
     entries = [
         entry for device in parse_lpinfo_devices(result.stdout)
         if (entry := _scan_entry(device))

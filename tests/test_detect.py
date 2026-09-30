@@ -1,5 +1,7 @@
 import subprocess
 
+import pytest
+
 from app import detect
 
 SNMP_LINE = (
@@ -101,9 +103,9 @@ def test_parse_lpinfo_devices():
 
 
 def test_scan_filters_and_dedupes(monkeypatch):
-    monkeypatch.setattr(detect, "_run", lambda cmd, timeout=0: type(
-        "P", (), {"stdout": LPINFO_L_OUTPUT}
-    )())
+    monkeypatch.setattr(detect, "_run", lambda cmd, timeout=0: subprocess.CompletedProcess(
+        cmd, 0, stdout=LPINFO_L_OUTPUT, stderr=""
+    ))
     printers = detect.scan()
     # The bare "ipp" backend template is filtered out; the dnssd entry is a
     # duplicate of the SNMP one (same make-and-model) and must be dropped.
@@ -140,3 +142,46 @@ def test_scan_resolves_ip_less_dnssd_entries(monkeypatch):
     assert printers[0]["ip"] == "192.168.1.146"
     assert printers[0]["uris"][0] == "socket://192.168.1.146:9100"
     assert printers[0]["uris"][-1].startswith("dnssd://")
+
+
+def test_scan_raises_when_lpinfo_fails(monkeypatch):
+    # A stopped cupsd must surface as an error, not as "no printer found"
+    monkeypatch.setattr(detect, "_run", lambda cmd, timeout=0: subprocess.CompletedProcess(
+        cmd, 1, stdout="", stderr="lpinfo: Bad file descriptor"
+    ))
+    with pytest.raises(RuntimeError, match="Bad file descriptor"):
+        detect.scan()
+
+
+def test_probe_tries_other_ipp_paths(monkeypatch):
+    calls = []
+
+    def fake(cmd, timeout=0):
+        calls.append(cmd)
+        if cmd[0] == "ipptool" and cmd[2] == "ipp://192.168.1.70/ipp":
+            return subprocess.CompletedProcess(cmd, 0, stdout=IPPTOOL_OUTPUT, stderr="")
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+
+    monkeypatch.setattr(detect, "_run", fake)
+    result = detect.probe("192.168.1.70")
+    assert result["make_model"] == "Brother HL-L2350DW series"
+    assert result["uris"][0] == "ipp://192.168.1.70/ipp"
+    assert [c[2] for c in calls if c[0] == "ipptool"] == [
+        "ipp://192.168.1.70/ipp/print", "ipp://192.168.1.70/ipp",
+    ]
+
+
+def test_probe_stops_ipp_paths_on_timeout(monkeypatch):
+    calls = []
+
+    def fake(cmd, timeout=0):
+        calls.append(cmd)
+        raise subprocess.TimeoutExpired(cmd, 15)
+
+    monkeypatch.setattr(detect, "_run", fake)
+    assert detect.probe("192.168.1.70")["found"] is False
+    assert [c[0] for c in calls] == [detect.SNMP_BACKEND, "ipptool"]
+
+
+def test_candidate_uris_brackets_ipv6():
+    assert detect.candidate_uris("fe80::1")[0] == "socket://[fe80::1]:9100"
