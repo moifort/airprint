@@ -3,12 +3,40 @@
   --card: #ffffff;
   --text: #1c1c1e;
   --muted: #6e6e73;
+  --border: #d2d2d7;
+  --input-bg: #ffffff;
+  --hover: #f0f0f2;
   --accent: #0071e3;
   --accent-dark: #0058b3;
   --danger: #d70015;
+  --danger-bg: #fdeaec;
   --ok: #1e7e34;
+  --ok-bg: #e3f4e8;
   --warn: #b25000;
+  --warn-bg: #fdeede;
+  --shadow: rgb(0 0 0 / 8%);
   --radius: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --card: #1c1c1e;
+    --text: #f5f5f7;
+    --muted: #98989d;
+    --border: #3a3a3c;
+    --input-bg: #2c2c2e;
+    --hover: #2c2c2e;
+    --accent: #0a84ff;
+    --accent-dark: #0071e3;
+    --danger: #ff453a;
+    --danger-bg: #3a1a1a;
+    --ok: #30d158;
+    --ok-bg: #16311e;
+    --warn: #ff9f0a;
+    --warn-bg: #3a2a12;
+    --shadow: rgb(0 0 0 / 40%);
+  }
 }
 
 * { box-sizing: border-box; }
@@ -49,7 +77,7 @@ h2 { font-size: 1.2rem; }
   border-radius: var(--radius);
   padding: 1.25rem;
   margin-bottom: 1rem;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 8%);
+  box-shadow: 0 1px 3px var(--shadow);
 }
 
 .hidden { display: none !important; }
@@ -66,6 +94,7 @@ h2 { font-size: 1.2rem; }
 
 .printer-info { display: flex; flex-direction: column; }
 .printer-info .model { color: var(--muted); font-size: 0.9rem; }
+.printer-info .stop-reason { color: var(--warn); font-size: 0.85rem; }
 
 .printer-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 
@@ -73,11 +102,11 @@ h2 { font-size: 1.2rem; }
   font-size: 0.8rem;
   padding: 0.2rem 0.6rem;
   border-radius: 999px;
-  background: #e3f4e8;
+  background: var(--ok-bg);
   color: var(--ok);
 }
 
-.badge.warn { background: #fdeede; color: var(--warn); }
+.badge.warn { background: var(--warn-bg); color: var(--warn); }
 
 .empty, .hint { color: var(--muted); }
 .hint { font-size: 0.85rem; margin: 0.4rem 0 0; }
@@ -90,9 +119,10 @@ input[type="text"], select {
   width: 100%;
   padding: 0.55rem 0.75rem;
   font-size: 1rem;
-  border: 1px solid #d2d2d7;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--input-bg);
+  color: var(--text);
 }
 
 input:focus, select:focus { outline: 2px solid var(--accent); border-color: transparent; }
@@ -103,13 +133,14 @@ input:focus, select:focus { outline: 2px solid var(--accent); border-color: tran
 button {
   font-size: 0.95rem;
   padding: 0.55rem 1rem;
-  border: 1px solid #d2d2d7;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--input-bg);
+  color: var(--text);
   cursor: pointer;
 }
 
-button:hover { background: #f0f0f2; }
+button:hover { background: var(--hover); }
 button:disabled { opacity: 0.6; cursor: default; }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -124,7 +155,7 @@ button.primary:hover { background: var(--accent-dark); }
 button.big { width: 100%; margin-top: 1.25rem; padding: 0.75rem; font-size: 1.05rem; }
 
 button.danger { color: var(--danger); }
-button.danger:hover { background: #fdeaec; border-color: var(--danger); }
+button.danger:hover { background: var(--danger-bg); border-color: var(--danger); }
 
 button.link {
   border: none;
@@ -141,7 +172,7 @@ button.link {
   flex-shrink: 0;
   width: 1rem;
   height: 1rem;
-  border: 2px solid #d2d2d7;
+  border: 2px solid var(--border);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -169,6 +200,7 @@ button.link {
 
 .steps li.done { color: var(--ok); }
 .steps li.active { color: var(--text); }
+.steps li.unconfirmed { color: var(--warn); }
 
 .manual-ip-row { margin-top: 0.5rem; }
 

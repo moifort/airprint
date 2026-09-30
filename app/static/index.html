@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖨️</text></svg>">
   <title>AirPrint Bridge</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -19,6 +21,7 @@
         <button id="show-wizard" aria-expanded="false" aria-controls="wizard">Add manually</button>
       </div>
       <p id="printers-error" class="error hidden" role="alert"></p>
+      <p id="printers-notice" class="success hidden" role="status"></p>
       <div id="printers-list" aria-live="polite"></div>
     </section>
 
@@ -37,7 +40,8 @@
       <div class="step" id="step-1">
         <label for="ip">Printer IP address</label>
         <div class="row manual-ip-row">
-          <input id="ip" type="text" placeholder="192.168.1.50" autocomplete="off">
+          <input id="ip" type="text" placeholder="192.168.1.50" autocomplete="off"
+                 autocapitalize="off" autocorrect="off" spellcheck="false">
           <button id="detect-btn">Detect</button>
         </div>
         <p class="hint">The printer must be powered on and connected to the same network.</p>

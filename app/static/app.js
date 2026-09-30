@@ -29,7 +29,8 @@ async function api(path, options = {}) {
 
 // --- Printer list ------------------------------------------------------------
 
-const STATE_LABELS = { idle: "Ready", printing: "Printing", stopped: "Stopped" };
+// lpstat states (LC_ALL=C): "idle", "printing", "disabled" (stopped queue)
+const STATE_LABELS = { idle: "Ready", printing: "Printing", disabled: "Stopped" };
 
 let lastSharedJson = null;
 let refreshInFlight = false;
@@ -65,24 +66,40 @@ function renderPrinters() {
     list.innerHTML = `<p class="empty">No shared printers yet.</p>`;
     return;
   }
-  list.innerHTML = state.shared.map((p) => `
+  list.innerHTML = state.shared.map((p) => {
+    const stopped = p.state === "disabled";
+    return `
     <div class="card printer">
       <div class="printer-info">
         <strong>${esc(p.name.replaceAll("_", " "))}</strong>
         <span class="model">${esc(p.make_model || "")}</span>
+        ${stopped && p.message ? `<span class="stop-reason">${esc(p.message)}</span>` : ""}
       </div>
       <div class="printer-actions">
-        <span class="badge ${p.state === "stopped" ? "warn" : "ok"}">
-          <span aria-hidden="true">${p.state === "stopped" ? "⚠︎" : "✓"}</span>
+        <span class="badge ${stopped ? "warn" : "ok"}">
+          <span aria-hidden="true">${stopped ? "⚠︎" : "✓"}</span>
           ${STATE_LABELS[p.state] || esc(p.state)} · AirPrint
         </span>
+        ${stopped ? `<button data-resume="${esc(p.name)}" class="primary">Resume</button>` : ""}
         ${p.jobs > 0 ? `
         <span class="badge warn">${p.jobs} job${p.jobs > 1 ? "s" : ""} queued</span>
         <button data-clear="${esc(p.name)}">Clear queue</button>` : ""}
         <button data-test="${esc(p.name)}">Test page</button>
         <button data-delete="${esc(p.name)}" class="danger">Delete</button>
       </div>
-    </div>`).join("");
+    </div>`;
+  }).join("");
+}
+
+// Transient confirmation above the printer list (manual wizard success)
+let noticeTimer = null;
+
+function showNotice(message) {
+  const el = $("printers-notice");
+  el.textContent = message;
+  el.classList.remove("hidden");
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => el.classList.add("hidden"), 6000);
 }
 
 function showCardError(el, message) {
@@ -124,11 +141,16 @@ document.addEventListener("click", async (e) => {
   const testBtn = e.target.closest("[data-test]");
   const clearBtn = e.target.closest("[data-clear]");
   const delBtn = e.target.closest("[data-delete]");
-  const btn = testBtn || clearBtn || delBtn;
+  const resumeBtn = e.target.closest("[data-resume]");
+  const btn = testBtn || clearBtn || delBtn || resumeBtn;
   if (!btn) return;
   clearCardError(btn);
   try {
-    if (testBtn) {
+    if (resumeBtn) {
+      resumeBtn.disabled = true;
+      await api(`/api/printers/${encodeURIComponent(resumeBtn.dataset.resume)}/resume`, { method: "POST" });
+      await refreshPrinters();
+    } else if (testBtn) {
       testBtn.disabled = true;
       await api(`/api/printers/${encodeURIComponent(testBtn.dataset.test)}/test`, { method: "POST" });
       testBtn.textContent = "Sent ✓";
@@ -156,13 +178,18 @@ document.addEventListener("click", async (e) => {
 
 $("rescan-btn").addEventListener("click", scanNetwork);
 
+// A rescan replaces state.scanned and the whole section: never run one while
+// an add is in flight, it would wipe the progress card and shift indexes.
+function syncRescanButton() {
+  $("rescan-btn").disabled = state.scanning || state.adding.size > 0;
+}
+
 async function scanNetwork() {
-  if (state.scanning) return;
+  if (state.scanning || state.adding.size > 0) return;
   state.scanning = true;
-  const btn = $("rescan-btn");
-  btn.disabled = true;
+  syncRescanButton();
   $("detected-list").innerHTML = `
-    <p class="scanning" role="status"><span class="spinner" aria-hidden="true"></span> Scanning your network for printers… (up to 30 s)</p>`;
+    <p class="scanning" role="status"><span class="spinner" aria-hidden="true"></span> Scanning your network for printers… (up to a minute)</p>`;
   try {
     state.scanned = await api("/api/scan");
     state.scanning = false;
@@ -173,7 +200,7 @@ async function scanNetwork() {
       <button data-retry-scan>Retry scan</button>`;
   } finally {
     state.scanning = false;
-    btn.disabled = false;
+    syncRescanButton();
   }
 }
 
@@ -215,12 +242,29 @@ const ADD_STEPS = [
   "Publishing over AirPrint",
 ];
 
+// CUPS registers the queue with Avahi asynchronously: poll the real DNS-SD
+// announcement for a while before giving up.
+const PUBLISH_ATTEMPTS = 10;
+const PUBLISH_INTERVAL_MS = 2000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function waitForAirPrint(queue) {
+  for (let attempt = 1; attempt <= PUBLISH_ATTEMPTS; attempt++) {
+    const { advertised } = await api(`/api/printers/${encodeURIComponent(queue)}/airprint`);
+    if (advertised) return true;
+    if (attempt < PUBLISH_ATTEMPTS) await sleep(PUBLISH_INTERVAL_MS);
+  }
+  return false;
+}
+
 async function addDetected(index) {
   if (state.adding.has(index)) return; // ignore double-clicks
   const printer = state.scanned[index];
   const card = document.querySelector(`[data-card="${index}"]`);
   if (!printer || !card) return;
   state.adding.add(index);
+  syncRescanButton();
   let created = false;
   try {
     renderAddProgress(card, printer, 0);
@@ -239,42 +283,49 @@ async function addDetected(index) {
       return;
     }
     renderAddProgress(card, printer, 1);
-    await api("/api/printers", {
+    const { queue } = await api("/api/printers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: printer.make_model, uri: printer.uris[0], ppd: drivers[0].ppd }),
     });
     created = true;
     renderAddProgress(card, printer, 2);
-    await refreshPrinters();
-    renderAddProgress(card, printer, ADD_STEPS.length);
+    refreshPrinters();
+    const advertised = await waitForAirPrint(queue);
+    renderAddProgress(card, printer, ADD_STEPS.length, advertised);
   } catch (err) {
     if (created) {
-      // The queue exists; a failed list refresh must not offer a Retry that
-      // would create a duplicate queue.
-      renderAddProgress(card, printer, ADD_STEPS.length);
+      // The queue exists; a failed check must not offer a Retry that would
+      // create a duplicate queue.
+      renderAddProgress(card, printer, ADD_STEPS.length, false);
     } else {
       renderAddError(card, index, err.message);
     }
   } finally {
     state.adding.delete(index);
+    syncRescanButton();
   }
   if (created) setTimeout(renderDetected, 2500);
 }
 
-function renderAddProgress(card, printer, current) {
+// `advertised` only matters once every step ran: false marks the last step
+// (the AirPrint announcement) as unconfirmed instead of done.
+function renderAddProgress(card, printer, current, advertised = true) {
   const done = current >= ADD_STEPS.length;
+  const last = ADD_STEPS.length - 1;
   card.innerHTML = `
     <div class="printer-info" role="status">
       <strong>${esc(printer.make_model)}</strong>
       <ul class="steps">
         ${ADD_STEPS.map((label, i) => {
+          if (done && !advertised && i === last) return `<li class="unconfirmed"><span aria-hidden="true">⚠︎</span> ${label}</li>`;
           if (i < current) return `<li class="done"><span aria-hidden="true">✓</span> ${label}</li>`;
           if (i === current) return `<li class="active"><span class="spinner" aria-hidden="true"></span> ${label}…</li>`;
           return `<li><span aria-hidden="true">○</span> ${label}</li>`;
         }).join("")}
       </ul>
-      ${done ? `<span class="success">✓ Now available on your Apple devices.</span>` : ""}
+      ${done && advertised ? `<span class="success">✓ Now available on your Apple devices.</span>` : ""}
+      ${done && !advertised ? `<span class="warn-text">The queue was created but is not announced over AirPrint yet. It may appear in a moment; if not, restart the container.</span>` : ""}
     </div>`;
 }
 
@@ -452,20 +503,22 @@ $("create-btn").addEventListener("click", async () => {
   btn.disabled = true;
   btn.textContent = "Configuring…";
   try {
+    let result;
     if (ppdFile) {
       const form = new FormData();
       form.append("name", name);
       form.append("uri", uri);
       form.append("ppd_file", ppdFile);
-      await api("/api/printers/upload", { method: "POST", body: form });
+      result = await api("/api/printers/upload", { method: "POST", body: form });
     } else {
-      await api("/api/printers", {
+      result = await api("/api/printers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, uri, ppd }),
       });
     }
     toggleWizard(false);
+    showNotice(`✓ “${result.queue.replaceAll("_", " ")}” is now shared over AirPrint.`);
     await refreshPrinters();
   } catch (err) {
     showError(err.message);
