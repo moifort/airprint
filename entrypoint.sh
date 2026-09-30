@@ -7,6 +7,10 @@ UI_PORT="${UI_PORT:-8080}"
 if [ ! -f /etc/cups/cupsd.conf ]; then
     cp -a /etc/cups-skel/. /etc/cups/
 fi
+# cupsd.conf belongs to the image, not to the user: refresh it on every
+# start so image upgrades reach existing volumes. Queues (printers.conf,
+# ppd/) are left untouched.
+cp /etc/cups-skel/cupsd.conf /etc/cups/cupsd.conf
 
 mkdir -p /run/dbus
 rm -f /run/dbus/pid /run/avahi-daemon/pid
@@ -31,6 +35,12 @@ for _ in $(seq 1 30); do
     sleep 1
 done
 cupsctl --share-printers
+
+# Queues created before the retry-job default: a printer switched off for a
+# moment would leave them stopped with every AirPrint job stuck.
+for queue in $(lpstat -e 2>/dev/null); do
+    lpadmin -p "$queue" -o printer-error-policy=retry-job || true
+done
 
 cd /opt/airprint
 exec uvicorn app.main:app --host 0.0.0.0 --port "$UI_PORT"

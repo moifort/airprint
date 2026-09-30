@@ -20,6 +20,13 @@ device for Salon: ipp://192.168.1.51/ipp/print
 """
 
 
+@pytest.fixture(autouse=True)
+def _clear_driver_cache():
+    cups_service._all_drivers.cache_clear()
+    yield
+    cups_service._all_drivers.cache_clear()
+
+
 def fake_run(recorded, stdout="", returncode=0, stderr=""):
     def _fake(cmd, **kwargs):
         recorded.append(cmd)
@@ -37,16 +44,27 @@ def test_parse_lpinfo_output():
 
 
 def test_parse_lpstat():
-    printers = cups_service.parse_lpstat(LPSTAT_P, LPSTAT_V)
+    printers = cups_service.parse_lpstat(LPSTAT_P + LPSTAT_V)
     assert printers == [
-        {"name": "Bureau", "state": "idle", "uri": "socket://192.168.1.50:9100"},
-        {"name": "Salon", "state": "disabled", "uri": "ipp://192.168.1.51/ipp/print"},
+        {"name": "Bureau", "state": "idle", "uri": "socket://192.168.1.50:9100", "message": None},
+        {"name": "Salon", "state": "disabled", "uri": "ipp://192.168.1.51/ipp/print", "message": None},
     ]
+
+
+def test_parse_lpstat_keeps_stop_reason():
+    printers = cups_service.parse_lpstat(
+        "printer Salon disabled since Thu 12 Jun 2026 -\n"
+        "\tUnable to connect to printer; will retry in 30 seconds...\n"
+        "device for Salon: socket://192.168.1.51:9100\n"
+    )
+    assert printers[0]["message"] == "Unable to connect to printer; will retry in 30 seconds..."
 
 
 def test_queue_name_sanitizes():
     assert cups_service.queue_name("Imprimante Bureau") == "Imprimante_Bureau"
-    assert cups_service.queue_name("HP (étage) #2") == "HP_tage_2"
+    assert cups_service.queue_name("HP (étage) #2") == "HP_etage_2"
+    assert cups_service.queue_name("Épson Salon") == "Epson_Salon"
+    assert len(cups_service.queue_name("x" * 300)) == cups_service.MAX_QUEUE_NAME
     with pytest.raises(cups_service.CupsError):
         cups_service.queue_name("///")
 
@@ -98,19 +116,38 @@ def test_add_printer_with_model(monkeypatch):
         "drv:///hpcups.drv/hp-laserjet_1320.ppd",
     )
     assert queue == "Imprimante_Bureau"
-    lpadmin = calls[0]
+    lpadmin = next(c for c in calls if c[0] == "lpadmin")
     assert lpadmin[:3] == ["lpadmin", "-p", "Imprimante_Bureau"]
     assert "-m" in lpadmin and "drv:///hpcups.drv/hp-laserjet_1320.ppd" in lpadmin
     assert "printer-is-shared=true" in lpadmin
-    assert calls[1] == ["cupsctl", "--share-printers"]
+    assert "printer-error-policy=retry-job" in lpadmin
+    assert calls[-1] == ["cupsctl", "--share-printers"]
+
+
+def test_add_printer_never_overwrites_existing_queue(monkeypatch):
+    # lpadmin -p on an existing name reconfigures it: a second printer of
+    # the same model must get its own queue, not replace the first one
+    calls = []
+
+    def fake(cmd, **kwargs):
+        calls.append(cmd)
+        out = "HP_LaserJet_1320\nhp_laserjet_1320_2\n" if cmd == ["lpstat", "-e"] else ""
+        return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake)
+    queue = cups_service.add_printer("HP LaserJet 1320", "socket://1.2.3.4:9100", "everywhere")
+    assert queue == "HP_LaserJet_1320_3"
+    lpadmin = next(c for c in calls if c[0] == "lpadmin")
+    assert lpadmin[lpadmin.index("-D") + 1] == "HP LaserJet 1320 (3)"
 
 
 def test_add_printer_with_ppd_file_uses_capital_p(monkeypatch):
     calls = []
     monkeypatch.setattr(subprocess, "run", fake_run(calls))
     cups_service.add_printer("Salon", "ipp://192.168.1.51/ipp/print", "/tmp/x.ppd")
-    assert "-P" in calls[0] and "/tmp/x.ppd" in calls[0]
-    assert "-m" not in calls[0]
+    lpadmin = next(c for c in calls if c[0] == "lpadmin")
+    assert "-P" in lpadmin and "/tmp/x.ppd" in lpadmin
+    assert "-m" not in lpadmin
 
 
 def test_add_printer_raises_on_failure(monkeypatch):
@@ -179,23 +216,63 @@ def test_add_printer_tolerates_cupsctl_failure(monkeypatch):
     assert cups_service.add_printer("X", "socket://1.2.3.4:9100", "everywhere") == "X"
 
 
-def test_list_printers_tolerates_lpstat_v_failure(monkeypatch):
-    def selective(cmd, **kwargs):
-        if cmd == ["lpstat", "-v"]:
-            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="fail")
-        if cmd == ["lpstat", "-p"]:
-            return subprocess.CompletedProcess(cmd, 0, stdout=LPSTAT_P, stderr="")
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-
-    monkeypatch.setattr(subprocess, "run", selective)
+def test_list_printers_uses_a_single_lpstat_call(monkeypatch):
+    calls = []
+    jobs = "Salon-3               mobile            8192   Fri Jun 12 14:32:48 2026\n"
+    monkeypatch.setattr(subprocess, "run", fake_run(calls, stdout=LPSTAT_P + LPSTAT_V + jobs))
     printers = cups_service.list_printers()
-    assert [p["name"] for p in printers] == ["Bureau", "Salon"]
-    assert printers[0]["uri"] is None
+    assert calls == [["lpstat", "-p", "-v", "-o"]]
+    assert [(p["name"], p["uri"], p["jobs"]) for p in printers] == [
+        ("Bureau", "socket://192.168.1.50:9100", 0),
+        ("Salon", "ipp://192.168.1.51/ipp/print", 1),
+    ]
+
+
+def test_list_printers_empty_when_no_queue(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", fake_run(
+        [], returncode=1, stderr="lpstat: No destinations added."
+    ))
+    assert cups_service.list_printers() == []
+
+
+def test_fuzzy_match_lists_drivers_once(monkeypatch):
+    calls = []
+    monkeypatch.setattr(subprocess, "run", fake_run(calls, stdout=FULL_LPINFO_OUTPUT))
+    cups_service.fuzzy_match_drivers("Brother HL-1210W series")
+    cups_service.fuzzy_match_drivers("HP LaserJet 1320")
+    assert calls == [["lpinfo", "-m"]]
+
+
+def test_resume_printer(monkeypatch):
+    calls = []
+    monkeypatch.setattr(subprocess, "run", fake_run(calls))
+    cups_service.resume_printer("Salon")
+    assert calls == [["cupsenable", "Salon"]]
+    with pytest.raises(cups_service.CupsError):
+        cups_service.resume_printer("x; reboot")
+
+
+AVAHI_IPP_OUTPUT = """\
++;eth0;IPv4;Bureau @ airprint;Internet Printer;local
+=;eth0;IPv4;Bureau @ airprint;Internet Printer;local;airprint.local;192.168.1.199;631;"txtvers=1" "qtotal=1" "rp=printers/Bureau" "ty=HP LaserJet 1320"
+=;eth0;IPv4;Other;Internet Printer;local;other.local;192.168.1.20;631;"rp=ipp/print"
+"""
+
+
+def test_parse_avahi_queues():
+    assert cups_service.parse_avahi_queues(AVAHI_IPP_OUTPUT) == {"Bureau"}
+
+
+def test_is_advertised(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", fake_run([], stdout=AVAHI_IPP_OUTPUT))
+    assert cups_service.is_advertised("Bureau") is True
+    assert cups_service.is_advertised("Salon") is False
 
 
 def test_parse_lpstat_now_printing_state():
     printers = cups_service.parse_lpstat(
-        "printer Atelier now printing Atelier-1.  enabled since Fri Jun 12 14:32:51 2026\n",
-        "device for Atelier: socket://192.168.1.146:9100\n",
+        "printer Atelier now printing Atelier-1.  enabled since Fri Jun 12 14:32:51 2026\n"
+        "device for Atelier: socket://192.168.1.146:9100\n"
     )
-    assert printers == [{"name": "Atelier", "state": "printing", "uri": "socket://192.168.1.146:9100"}]
+    assert printers == [{"name": "Atelier", "state": "printing",
+                         "uri": "socket://192.168.1.146:9100", "message": None}]
