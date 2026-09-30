@@ -1,4 +1,4 @@
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -42,7 +42,10 @@ RUN chmod +x /entrypoint.sh
 
 ENV UI_PORT=8080
 
+# Checks the UI and cupsd (the route runs lpstat) and that Avahi is alive:
+# without Avahi nothing is announced over AirPrint.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s \
-    CMD curl -fs "http://localhost:${UI_PORT}/api/printers" || exit 1
+    CMD curl -fs "http://localhost:${UI_PORT}/api/printers" \
+        && kill -0 "$(cat /run/avahi-daemon/pid)" || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
