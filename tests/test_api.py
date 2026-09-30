@@ -199,7 +199,7 @@ def test_upload_ppd_creates_queue_and_cleans_up(client, monkeypatch, tmp_path):
     )
     assert res.status_code == 201
     assert res.json() == {"queue": "Salon"}
-    assert received["ppd"].endswith("Salon.ppd")
+    assert received["ppd"].startswith(str(tmp_path)) and received["ppd"].endswith(".ppd")
     # lpadmin copies the PPD into CUPS; the temp file must not accumulate
     assert list(tmp_path.iterdir()) == []
 
@@ -224,4 +224,62 @@ def test_upload_rejects_oversized_ppd(client, monkeypatch, tmp_path):
         files={"ppd_file": ("x.ppd", big)},
     )
     assert res.status_code == 413
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_cross_origin_write_is_rejected(client, monkeypatch):
+    printed = []
+    monkeypatch.setattr(cups_service, "print_test_page", printed.append)
+    res = client.post("/api/printers/Bureau/test", headers={"Origin": "http://evil.example"})
+    assert res.status_code == 403
+    assert printed == []
+
+
+def test_same_origin_write_is_allowed(client, monkeypatch):
+    printed = []
+    monkeypatch.setattr(cups_service, "print_test_page", printed.append)
+    res = client.post(
+        "/api/printers/Bureau/test",
+        headers={"Origin": "http://testserver", "Host": "testserver"},
+    )
+    assert res.status_code == 200
+    assert printed == ["Bureau"]
+
+
+def test_cross_origin_read_is_allowed(client, monkeypatch):
+    monkeypatch.setattr(cups_service, "list_printers", lambda: [])
+    res = client.get("/api/printers", headers={"Origin": "http://evil.example"})
+    assert res.status_code == 200
+
+
+def test_resume_printer(client, monkeypatch):
+    resumed = []
+    monkeypatch.setattr(cups_service, "resume_printer", resumed.append)
+    assert client.post("/api/printers/Salon/resume").status_code == 204
+    assert resumed == ["Salon"]
+
+
+def test_airprint_status(client, monkeypatch):
+    monkeypatch.setattr(cups_service, "is_advertised", lambda name: name == "Bureau")
+    assert client.get("/api/printers/Bureau/airprint").json() == {"advertised": True}
+    assert client.get("/api/printers/Salon/airprint").json() == {"advertised": False}
+
+
+def test_upload_uses_a_unique_temp_file(client, monkeypatch, tmp_path):
+    paths = []
+
+    def fake_add(name, uri, ppd):
+        paths.append(ppd)
+        return "Bureau"
+
+    monkeypatch.setattr(cups_service, "add_printer", fake_add)
+    monkeypatch.setattr(main, "UPLOADED_PPD_DIR", tmp_path)
+    for _ in range(2):
+        res = client.post(
+            "/api/printers/upload",
+            data={"name": "Bureau", "uri": "socket://192.168.1.50:9100"},
+            files={"ppd_file": ("x.ppd", b"*PPD-Adobe: \"4.3\"\n", "application/octet-stream")},
+        )
+        assert res.status_code == 201
+    assert len(set(paths)) == 2
     assert list(tmp_path.iterdir()) == []

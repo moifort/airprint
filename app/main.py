@@ -3,10 +3,12 @@
 import ipaddress
 import tempfile
 import threading
+import urllib.parse
 from concurrent.futures import Future
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
@@ -17,6 +19,22 @@ app = FastAPI(title="AirPrint Bridge")
 UPLOADED_PPD_DIR = Path(tempfile.gettempdir()) / "airprint-ppds"
 MAX_PPD_SIZE = 2 * 1024 * 1024  # PPDs are tens of KB; 2 MB is generous
 PPD_MAGIC = b"*PPD-Adobe"
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+@app.middleware("http")
+async def reject_cross_site_requests(request: Request, call_next):
+    """CSRF guard. Form posts and body-less POSTs skip the CORS preflight, so
+    without this any web page open on the LAN could create queues or print.
+    Browsers always send Origin on cross-origin writes; clients without one
+    (curl, scripts) are not browsers and carry no ambient authority."""
+    origin = request.headers.get("origin")
+    if request.method not in SAFE_METHODS and origin:
+        if urllib.parse.urlsplit(origin).netloc != request.headers.get("host"):
+            return JSONResponse(
+                {"detail": "cross-origin request rejected"}, status_code=403
+            )
+    return await call_next(request)
 
 
 def _check_uri(uri: str) -> str:
@@ -162,8 +180,13 @@ def create_printer_with_ppd(
         uri = _check_uri(uri)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _cups_call(cups_service.queue_name, name)  # reject unusable names before I/O
     UPLOADED_PPD_DIR.mkdir(parents=True, exist_ok=True)
-    ppd_path = UPLOADED_PPD_DIR / f"{_cups_call(cups_service.queue_name, name)}.ppd"
+    # A unique file per request: concurrent uploads must not share a path
+    with tempfile.NamedTemporaryFile(
+        dir=UPLOADED_PPD_DIR, suffix=".ppd", delete=False
+    ) as tmp:
+        ppd_path = Path(tmp.name)
     try:
         with ppd_path.open("wb") as out:
             size = 0
@@ -191,6 +214,16 @@ def create_printer_with_ppd(
 @app.delete("/api/printers/{name}", status_code=204)
 def delete_printer(name: str):
     _cups_call(cups_service.delete_printer, name)
+
+
+@app.post("/api/printers/{name}/resume", status_code=204)
+def resume_printer(name: str):
+    _cups_call(cups_service.resume_printer, name)
+
+
+@app.get("/api/printers/{name}/airprint")
+def airprint_status(name: str):
+    return {"advertised": _cups_call(cups_service.is_advertised, name)}
 
 
 @app.delete("/api/printers/{name}/jobs", status_code=204)
