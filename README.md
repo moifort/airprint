@@ -65,7 +65,7 @@ Keep the printer switched off and let the bridge power it on when a job comes in
 ```yaml
     environment:
       UI_PORT: "8080"
-      POWER_PLUGS: "Brother_HL-1210W_series=workshop_lower"
+      POWER_PLUGS: "Brother_HL-1210W_series=atelier_imprimante"
       MQTT_URL: "mqtt://192.168.1.199:1883"
       POWER_OFF_DELAY: "10"
 ```
