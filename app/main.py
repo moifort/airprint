@@ -1,10 +1,12 @@
 """AirPrint bridge API: printer detection, driver selection, queue management."""
 
 import ipaddress
+import os
 import tempfile
 import threading
 import urllib.parse
 from concurrent.futures import Future
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -12,9 +14,20 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-from . import cups_service, detect
+from . import cups_service, detect, power
 
-app = FastAPI(title="AirPrint Bridge")
+# None unless POWER_PLUGS is configured
+power_manager = power.PowerManager.from_env(os.environ)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    if power_manager:
+        power_manager.start()
+    yield
+
+
+app = FastAPI(title="AirPrint Bridge", lifespan=lifespan)
 
 UPLOADED_PPD_DIR = Path(tempfile.gettempdir()) / "airprint-ppds"
 MAX_PPD_SIZE = 2 * 1024 * 1024  # PPDs are tens of KB; 2 MB is generous
@@ -161,7 +174,12 @@ def search_drivers(q: str | None = None, device_id: str | None = None):
 
 @app.get("/api/printers")
 def list_printers():
-    return _cups_call(cups_service.list_printers)
+    printers = _cups_call(cups_service.list_printers)
+    for printer in printers:
+        printer["power_plug"] = (
+            power_manager.controller.plug_for(printer["name"]) if power_manager else None
+        )
+    return printers
 
 
 @app.post("/api/printers", status_code=201)

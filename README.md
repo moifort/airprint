@@ -54,6 +54,23 @@ The container bundles **CUPS** (the printing system), **Avahi** (Bonjour/mDNS) a
 | Port `631` | Classic CUPS administration at `http://<server-ip>:631` |
 | Port `5353/udp` | mDNS (Avahi) — Bonjour announcements |
 | Volume `/etc/cups` | Printer configuration (persists queues across restarts) |
+| `POWER_PLUGS` (default empty) | Auto power: `<queue>=<Zigbee2MQTT device>,…` — see below |
+| `MQTT_URL` (default `mqtt://localhost:1883`) | Auto power: MQTT broker used by Zigbee2MQTT |
+| `POWER_OFF_DELAY` (default `10`) | Auto power: minutes after the last job before switching off |
+
+### Auto power (smart plug)
+
+Keep the printer switched off and let the bridge power it on when a job comes in. The printer's smart plug must be a [Zigbee2MQTT](https://www.zigbee2mqtt.io) device (if it shows up in HomeKit through Homebridge's Zigbee2MQTT plugin, it is one).
+
+```yaml
+    environment:
+      UI_PORT: "8080"
+      POWER_PLUGS: "Brother_HL-1210W_series=workshop_lower"
+      MQTT_URL: "mqtt://192.168.1.199:1883"
+      POWER_OFF_DELAY: "10"
+```
+
+The queue name is the one shown on the printer card; the plug name is the device's friendly name in Zigbee2MQTT. When a job arrives, the bridge publishes `{"state":"ON"}` to `zigbee2mqtt/<plug>/set`; CUPS holds the job until the printer answers, then prints it. `POWER_OFF_DELAY` minutes after the queue empties, the plug is switched off — only if a job went through, so a plug switched on by hand is left alone. The printer card shows **Auto power: \<plug\>** when configured.
 
 ### Security note
 

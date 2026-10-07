@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         cups-ipp-utils \
         avahi-daemon \
         avahi-utils \
+        mosquitto-clients \
         dbus \
         foomatic-db \
         foomatic-db-engine \

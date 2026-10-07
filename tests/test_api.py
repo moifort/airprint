@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app import cups_service, detect, main
+from app import cups_service, detect, main, power
 
 
 @pytest.fixture
@@ -74,6 +74,19 @@ def test_list_printers(client, monkeypatch):
     res = client.get("/api/printers")
     assert res.status_code == 200
     assert res.json()[0]["name"] == "Bureau"
+    assert res.json()[0]["power_plug"] is None
+
+
+def test_list_printers_reports_power_plug(client, monkeypatch):
+    monkeypatch.setattr(cups_service, "list_printers", lambda: [
+        {"name": "Bureau", "state": "idle", "uri": None, "make_model": None},
+        {"name": "Other", "state": "idle", "uri": None, "make_model": None},
+    ])
+    monkeypatch.setattr(main, "power_manager", power.PowerManager.from_env(
+        {"POWER_PLUGS": "bureau=workshop_lower"}
+    ))
+    body = client.get("/api/printers").json()
+    assert [p["power_plug"] for p in body] == ["workshop_lower", None]
 
 
 def test_create_printer(client, monkeypatch):

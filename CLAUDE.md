@@ -45,6 +45,32 @@ cosmetic timer.
    URI. A stopped queue (lpstat state `disabled`) shows a warning badge, the
    CUPS stop reason and a **Resume** button (`cupsenable`).
 
+## Auto power: switch the printer's smart plug on demand
+
+Printers left switched off are powered on when a job arrives, and off again
+once idle, through a Zigbee2MQTT plug (HomeKit sees the change via Homebridge).
+
+- **Config (env vars).** `POWER_PLUGS="<queue>=<z2m friendly name>,…"`
+  (queue names case-insensitive; empty = feature off, image behaves as
+  before), `MQTT_URL` (default `mqtt://localhost:1883`, anonymous),
+  `POWER_OFF_DELAY` in minutes (default 10). Publishes
+  `zigbee2mqtt/<plug>/set` → `{"state":"ON"|"OFF"}` via `mosquitto_pub`.
+- **Loop.** `app/power.py`: a thread started from the FastAPI lifespan polls
+  `lpstat -o` every 2 s and feeds a pure state machine
+  (`PowerController.tick(job_counts, now)`). Queues sharing a plug add up.
+- **On.** Any pending job → `ON`, republished every 60 s while jobs remain
+  (idempotent, covers a lost message). CUPS keeps the job meanwhile:
+  `retry-job` policy and `JobRetryInterval 10` in `cupsd.conf`.
+- **Off.** A plug is armed only once a job was seen on it; `POWER_OFF_DELAY`
+  after its queues emptied → `OFF`, disarmed. A plug switched on by hand
+  without printing, or a container restart, never turns anything off. The
+  delay starts when the job leaves CUPS, while the printer may still be
+  printing from its buffer — hence the margin.
+- **Errors.** A failed publish is logged and retried 10 s later; a failed
+  `lpstat` skips the tick (never read as "no jobs"). Printing never blocks
+  on MQTT. `GET /api/printers` adds `power_plug`; the card shows
+  "Auto power: <plug>".
+
 ## Backend notes
 
 - Queues are created with `printer-error-policy=retry-job`; the entrypoint

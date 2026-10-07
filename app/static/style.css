@@ -95,6 +95,7 @@ h2 { font-size: 1.2rem; }
 .printer-info { display: flex; flex-direction: column; }
 .printer-info .model { color: var(--muted); font-size: 0.9rem; }
 .printer-info .stop-reason { color: var(--warn); font-size: 0.85rem; }
+.printer-info .power { color: var(--muted); font-size: 0.85rem; }
 
 .printer-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 

@@ -74,6 +74,7 @@ function renderPrinters() {
         <strong>${esc(p.name.replaceAll("_", " "))}</strong>
         <span class="model">${esc(p.make_model || "")}</span>
         ${stopped && p.message ? `<span class="stop-reason">${esc(p.message)}</span>` : ""}
+        ${p.power_plug ? `<span class="power">Auto power: ${esc(p.power_plug)}</span>` : ""}
       </div>
       <div class="printer-actions">
         <span class="badge ${stopped ? "warn" : "ok"}">
