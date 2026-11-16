@@ -33,11 +33,27 @@ async function api(path, options = {}) {
 const STATE_LABELS = { idle: "Ready", printing: "Printing", disabled: "Stopped" };
 
 let lastSharedJson = null;
-let refreshInFlight = false;
+let refreshPromise = null;
+let refreshAgain = false;
 
-async function refreshPrinters() {
-  if (refreshInFlight) return;
-  refreshInFlight = true;
+// Callers that just changed a queue await this. When a poll is already in
+// flight its answer may predate the change: run one more right after it
+// instead of returning early with a stale list.
+function refreshPrinters() {
+  if (refreshPromise) {
+    refreshAgain = true;
+    return refreshPromise;
+  }
+  refreshPromise = (async () => {
+    do {
+      refreshAgain = false;
+      await loadPrinters();
+    } while (refreshAgain);
+  })().finally(() => { refreshPromise = null; });
+  return refreshPromise;
+}
+
+async function loadPrinters() {
   try {
     state.shared = await api("/api/printers");
     $("printers-error").classList.add("hidden");
@@ -55,8 +71,6 @@ async function refreshPrinters() {
     banner.textContent = `Could not refresh printers: ${err.message}`;
     banner.classList.remove("hidden");
     if (lastSharedJson === null) $("printers-list").innerHTML = "";
-  } finally {
-    refreshInFlight = false;
   }
 }
 
