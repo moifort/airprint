@@ -256,6 +256,21 @@ def test_upload_rejects_oversized_ppd(client, monkeypatch, tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
+def test_upload_refused_on_content_length_before_parsing(client, monkeypatch):
+    parsed = []
+    monkeypatch.setattr(cups_service, "queue_name", parsed.append)
+    res = client.post(
+        "/api/printers/upload",
+        content=b"x",
+        headers={
+            "Content-Type": "multipart/form-data; boundary=b",
+            "Content-Length": str(main.MAX_PPD_SIZE + main.UPLOAD_OVERHEAD + 1),
+        },
+    )
+    assert res.status_code == 413
+    assert parsed == []  # the route never ran
+
+
 def test_cross_origin_write_is_rejected(client, monkeypatch):
     printed = []
     monkeypatch.setattr(cups_service, "print_test_page", printed.append)

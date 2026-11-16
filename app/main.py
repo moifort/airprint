@@ -50,6 +50,28 @@ async def reject_cross_site_requests(request: Request, call_next):
     return await call_next(request)
 
 
+# Multipart framing plus the name/uri fields around the PPD
+UPLOAD_OVERHEAD = 64 * 1024
+
+
+@app.middleware("http")
+async def reject_oversized_uploads(request: Request, call_next):
+    """FastAPI parses (and spools) the whole multipart body before the route
+    runs, so the route's own 2 MB check only fires after a huge upload was
+    received. Browsers always send Content-Length for a FormData POST: refuse
+    early on it; the route check still covers clients that don't."""
+    if request.url.path == "/api/printers/upload":
+        try:
+            length = int(request.headers.get("content-length", "0"))
+        except ValueError:
+            length = 0
+        if length > MAX_PPD_SIZE + UPLOAD_OVERHEAD:
+            return JSONResponse(
+                {"detail": "PPD file too large (2 MB max)"}, status_code=413
+            )
+    return await call_next(request)
+
+
 def _check_uri(uri: str) -> str:
     uri = uri.strip()
     if not uri.startswith(detect.DISCOVERY_SCHEMES):
