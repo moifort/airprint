@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -131,6 +132,21 @@ def test_ui_served_at_root(client):
     res = client.get("/")
     assert res.status_code == 200
     assert "AirPrint Bridge" in res.text
+
+
+@pytest.mark.parametrize("path", ["/", "/app.js"])
+def test_ui_requires_revalidation(client, path):
+    # A stale cached index.html paired with a fresh app.js broke the UI.
+    res = client.get(path)
+    assert res.status_code == 200
+    assert res.headers["cache-control"] == "no-cache"
+
+
+def test_ui_not_modified_keeps_no_cache(client):
+    etag = client.get("/app.js").headers["etag"]
+    res = client.get("/app.js", headers={"If-None-Match": etag})
+    assert res.status_code == 304
+    assert res.headers["cache-control"] == "no-cache"
 
 
 def test_clear_jobs(client, monkeypatch):
@@ -296,3 +312,22 @@ def test_upload_uses_a_unique_temp_file(client, monkeypatch, tmp_path):
         assert res.status_code == 201
     assert len(set(paths)) == 2
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("method,path", [
+    ("DELETE", "/api/printers/{}/jobs"),
+    ("POST", "/api/printers/{}/resume"),
+    ("POST", "/api/printers/{}/test"),
+    ("DELETE", "/api/printers/{}"),
+    ("GET", "/api/printers/{}/airprint"),
+])
+@pytest.mark.parametrize("name", ["-x", "-a"])
+def test_queue_names_starting_with_a_dash_are_rejected(client, monkeypatch, method, path, name):
+    # `DELETE /api/printers/-x/jobs` would otherwise run `cancel -a -x`,
+    # cancelling and purging every job on every queue
+    calls = []
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    res = client.request(method, path.format(name))
+    assert res.status_code == 400
+    assert res.json()["detail"] == "invalid queue name"
+    assert calls == []

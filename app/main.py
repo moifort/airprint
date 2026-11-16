@@ -255,6 +255,23 @@ def print_test_page(name: str):
     return {"status": "ok"}
 
 
+class UIStaticFiles(StaticFiles):
+    """StaticFiles that makes browsers revalidate the UI on every load.
+
+    Without Cache-Control, browsers cache index.html, app.js and style.css
+    heuristically and independently: after an image upgrade a stale cached
+    index.html could load alongside the new app.js, which then crashed on
+    elements missing from the old markup. `no-cache` still allows caching but
+    forces an ETag revalidation (cheap 304) each time, so all files always
+    come from the same version.
+    """
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 app.mount(
-    "/", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="ui"
+    "/", UIStaticFiles(directory=Path(__file__).parent / "static", html=True), name="ui"
 )
