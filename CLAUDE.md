@@ -25,13 +25,18 @@ cosmetic timer.
 1. **Auto-scan on page load.** The network scan starts automatically alongside
    the printer-list refresh. A "Detected on your network" section below
    "Shared printers" shows a spinner ("Scanning your network… (up to a minute)"),
-   then one card per detected printer with an **Add** button. Printers already
-   shared (same host as an existing queue URI) are filtered out, except a card
-   still showing an add (progress, error or warning). A **Rescan** button
-   re-runs the scan and clears every card state; it is disabled while an add is
-   in flight.
+   then one card per detected printer with **Customize…** (wizard pre-filled
+   via `selectScanned`, to pick another driver or connection up front) and
+   **Add**. Printers already shared (same host as an existing queue URI) are
+   filtered out, except a card still showing an add (progress, error or
+   warning). A **Rescan** button re-runs the scan; it is disabled while an add
+   is in flight. During a rescan the previous cards stay listed under a
+   "Rescanning…" line with their buttons disabled (no add may start while
+   indexes are about to change); new results clear every card state. A failed
+   scan shows the error and **Retry scan** above the previous results.
 2. **One-click add.** Clicking Add turns the card into a progress checklist:
-   *Finding the best driver* (`GET /api/drivers`, device-id first) →
+   *Finding the best driver* (`GET /api/drivers`, device-id first; the
+   chosen driver then shows on the card as "Driver: …") →
    *Installing driver and configuring the print queue* (`POST /api/printers`) →
    *Publishing over AirPrint* (polls `GET /api/printers/{queue}/airprint`,
    which looks for the queue's `rp=printers/<queue>` TXT record in
@@ -81,8 +86,10 @@ once idle, through a Zigbee2MQTT plug (HomeKit sees the change via Homebridge).
 - **Config (env vars).** `POWER_PLUGS="<queue>=<z2m friendly name>,…"`
   (queue names case-insensitive, spaces and underscores equivalent since the
   card shows `_` as spaces and CUPS names cannot contain spaces; plug names
-  verbatim; empty = feature off, image behaves as before), `MQTT_URL` (default `mqtt://localhost:1883`, anonymous),
-  `POWER_OFF_DELAY` in minutes (default 10). Publishes
+  verbatim; empty = feature off, image behaves as before), `MQTT_URL` (default
+  `mqtt://localhost:1883`; optional `user:password@`, percent-decoded, passed
+  as `-u`/`-P`, redacted from config errors), `POWER_OFF_DELAY` in minutes
+  (default 10), `POWER_MAX_ON` in minutes (default 60, 0 = no cap). Publishes
   `zigbee2mqtt/<plug>/set` → `{"state":"ON"|"OFF"}` via `mosquitto_pub`.
 - **Loop.** `app/power.py`: a thread started from the FastAPI lifespan polls
   `lpstat -o` every 2 s and feeds a pure state machine
@@ -95,11 +102,17 @@ once idle, through a Zigbee2MQTT plug (HomeKit sees the change via Homebridge).
   without printing, or a container restart, never turns anything off. The
   delay starts when the job leaves CUPS, while the printer may still be
   printing from its buffer — hence the margin.
+- **Cap.** Jobs pending for `POWER_MAX_ON` without leaving the queue (printer
+  unreachable, job held, wrong driver) → `OFF` anyway, logged as a warning;
+  the plug then stays off while the job count stays at or below its lowest
+  value since. A count above it (a new job) switches it on again with a fresh
+  timer; an empty queue resets everything (no second `OFF`). A failed cap
+  `OFF` is retried 10 s later without republishing `ON` meanwhile.
 - **Errors.** A failed publish is logged and retried 10 s later; a failed
   `lpstat` skips the tick (never read as "no jobs"), logged once when it
   starts failing and once (info) when it recovers. Printing never blocks
-  on MQTT. `GET /api/printers` adds `power_plug`; the card shows
-  "Auto power: <plug>".
+  on MQTT. `GET /api/printers` adds `power_plug` and `power_gave_up`; the
+  card shows "Auto power: <plug>", plus a warning line when the cap cut it.
 
 ## Backend notes
 
@@ -112,7 +125,21 @@ once idle, through a Zigbee2MQTT plug (HomeKit sees the change via Homebridge).
   applies it to existing queues too. CUPS' default `stop-printer` leaves the
   queue stopped whenever the printer is briefly off.
 - `cupsd.conf` belongs to the image and is overwritten on every start;
-  queues in the `/etc/cups` volume are kept.
+  queues in the `/etc/cups` volume are kept. It uses `Port 631` (every
+  address, IPv6 included: Avahi announces both and Apple devices may pick
+  IPv6), not `Listen 0.0.0.0:631`.
+- Supervision: tini is PID 1 (reaps orphaned filters, forwards SIGTERM).
+  The entrypoint runs cupsd (`-f`) and uvicorn in the background and
+  watches them, plus avahi and dbus through their pid files, every 10 s;
+  it also counts cupsd as dead after 3 failed `lpstat -r` in a row. Any loss
+  → exit 1, so `restart: unless-stopped` restarts the container (Docker
+  never restarts an "unhealthy" one). SIGTERM → `avahi-daemon --kill`
+  (goodbye packets), stop uvicorn and cupsd, exit 0.
+- PPD uploads are refused with 413 on `Content-Length` before FastAPI parses
+  the multipart body (it spools all of it first); the route's streaming 2 MB
+  check stays for clients without the header.
+- CI: `tests.yml` runs on pushes to other branches and PRs; `main` and `v*`
+  tags are tested once, by `docker-publish.yml` calling it as the image gate.
 - Writes (non-GET) carrying an `Origin` that differs from `Host` are rejected
   (CSRF). This does not stop DNS rebinding; the UI still has no auth.
 - UI static files (index.html included, 304s too) are served with

@@ -17,6 +17,7 @@ services:
     # Required: AirPrint relies on mDNS (multicast), which does not
     # cross Docker's bridge network.
     network_mode: host
+    # The container exits if CUPS or Avahi dies: this brings it back
     restart: unless-stopped
     environment:
       UI_PORT: "8080"
@@ -55,8 +56,9 @@ The container bundles **CUPS** (the printing system), **Avahi** (Bonjour/mDNS) a
 | Port `5353/udp` | mDNS (Avahi) — Bonjour announcements |
 | Volume `/etc/cups` | Printer configuration (persists queues across restarts) |
 | `POWER_PLUGS` (default empty) | Auto power: `<queue>=<Zigbee2MQTT device>,…` — see below |
-| `MQTT_URL` (default `mqtt://localhost:1883`) | Auto power: MQTT broker used by Zigbee2MQTT |
+| `MQTT_URL` (default `mqtt://localhost:1883`) | Auto power: MQTT broker used by Zigbee2MQTT (`mqtt://user:password@host:1883` if it needs a login) |
 | `POWER_OFF_DELAY` (default `10`) | Auto power: minutes after the last job before switching off |
+| `POWER_MAX_ON` (default `60`, `0` = no limit) | Auto power: minutes a job may stay pending before the plug is switched off anyway |
 
 ### Auto power (smart plug)
 
@@ -70,7 +72,7 @@ Keep the printer switched off and let the bridge power it on when a job comes in
       POWER_OFF_DELAY: "10"
 ```
 
-The queue name is the one shown on the printer card, with spaces (`Brother HL-1210W series`) or underscores (`Brother_HL-1210W_series`), case-insensitive; the plug name is the device's friendly name in Zigbee2MQTT. When a job arrives, the bridge publishes `{"state":"ON"}` to `zigbee2mqtt/<plug>/set`; CUPS holds the job until the printer answers, then prints it. `POWER_OFF_DELAY` minutes after the queue empties, the plug is switched off — only if a job went through, so a plug switched on by hand is left alone. The printer card shows **Auto power: \<plug\>** when configured.
+The queue name is the one shown on the printer card, with spaces (`Brother HL-1210W series`) or underscores (`Brother_HL-1210W_series`), case-insensitive; the plug name is the device's friendly name in Zigbee2MQTT. When a job arrives, the bridge publishes `{"state":"ON"}` to `zigbee2mqtt/<plug>/set`; CUPS holds the job until the printer answers, then prints it. `POWER_OFF_DELAY` minutes after the queue empties, the plug is switched off — only if a job went through, so a plug switched on by hand is left alone. The printer card shows **Auto power: \<plug\>** when configured. A job that never prints (printer unreachable, wrong driver) does not keep the printer on forever: after `POWER_MAX_ON` minutes the plug is switched off and the card says so; the next job switches it on again.
 
 ### Security note
 
