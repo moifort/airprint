@@ -1,0 +1,19 @@
+# The image only copies requirements.txt, cups/cupsd.conf, app/ and
+# entrypoint.sh; keep everything else out of the build context.
+.git
+.github
+.gitignore
+.dockerignore
+.venv
+.claude
+.pytest_cache
+**/__pycache__
+**/*.pyc
+**/.DS_Store
+tests
+conftest.py
+requirements-dev.txt
+docs
+*.md
+docker-compose.yml
+Dockerfile
