@@ -176,9 +176,10 @@ def search_drivers(q: str | None = None, device_id: str | None = None):
 def list_printers():
     printers = _cups_call(cups_service.list_printers)
     for printer in printers:
-        printer["power_plug"] = (
-            power_manager.controller.plug_for(printer["name"]) if power_manager else None
-        )
+        plug = power_manager.controller.plug_for(printer["name"]) if power_manager else None
+        printer["power_plug"] = plug
+        # POWER_MAX_ON switched the plug off with jobs still pending
+        printer["power_gave_up"] = bool(plug and power_manager.controller.gave_up(plug))
     return printers
 
 

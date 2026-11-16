@@ -30,11 +30,24 @@ def test_parse_plugs_rejects_invalid(value):
 
 
 def test_parse_mqtt_url():
-    assert power.parse_mqtt_url("mqtt://192.168.1.199:1883") == ("192.168.1.199", 1883)
-    assert power.parse_mqtt_url("mqtt://broker") == ("broker", 1883)
+    assert power.parse_mqtt_url("mqtt://192.168.1.199:1883") == power.Broker("192.168.1.199", 1883)
+    assert power.parse_mqtt_url("mqtt://broker") == power.Broker("broker", 1883)
 
 
-@pytest.mark.parametrize("value", ["http://broker", "broker:1883", "mqtt://"])
+def test_parse_mqtt_url_with_credentials():
+    assert power.parse_mqtt_url("mqtt://z2m:p%40ss%3Aw@broker:1884") == power.Broker(
+        "broker", 1884, "z2m", "p@ss:w"
+    )
+    assert power.parse_mqtt_url("mqtt://z2m@broker") == power.Broker("broker", 1883, "z2m", None)
+
+
+def test_invalid_mqtt_url_error_hides_the_password():
+    with pytest.raises(power.PowerConfigError) as exc:
+        power.parse_mqtt_url("mqtt://z2m:secret@broker:notaport")
+    assert "secret" not in str(exc.value)
+
+
+@pytest.mark.parametrize("value", ["http://broker", "broker:1883", "mqtt://", "mqtt://b:99999"])
 def test_parse_mqtt_url_rejects_invalid(value):
     with pytest.raises(power.PowerConfigError):
         power.parse_mqtt_url(value)
@@ -134,7 +147,7 @@ def test_publish_runs_mosquitto_pub(monkeypatch):
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    power.publish("broker", 1884, "workshop_lower", "ON")
+    power.publish(power.Broker("broker", 1884), "workshop_lower", "ON")
     assert calls == [[
         "mosquitto_pub", "-h", "broker", "-p", "1884", "-q", "1",
         "-t", "zigbee2mqtt/workshop_lower/set", "-m", '{"state": "ON"}',
@@ -147,7 +160,7 @@ def test_publish_failure_raises(monkeypatch):
         lambda cmd, **kw: subprocess.CompletedProcess(cmd, 5, "", "Connection refused"),
     )
     with pytest.raises(power.PowerError, match="Connection refused"):
-        power.publish("broker", 1883, "plug", "OFF")
+        power.publish(power.Broker("broker"), "plug", "OFF")
 
 
 # --- manager wiring ---
@@ -165,7 +178,7 @@ def test_manager_step_publishes_and_skips_failed_lpstat(monkeypatch):
         {"POWER_PLUGS": "brother=workshop_lower", "MQTT_URL": "mqtt://b:1883"}
     )
     sent = []
-    monkeypatch.setattr(power, "publish", lambda host, port, plug, state: sent.append((host, port, plug, state)))
+    monkeypatch.setattr(power, "publish", lambda broker, plug, state: sent.append((broker.host, broker.port, plug, state)))
 
     monkeypatch.setattr(power, "job_counts", lambda: {"brother": 1})
     manager.step(now=0)
@@ -191,7 +204,7 @@ def test_manager_step_reports_publish_failure(monkeypatch):
     sent = []
     monkeypatch.setattr(power, "publish", lambda *a: sent.append(a))
     manager.step(now=10)
-    assert sent == [("localhost", 1883, "plug", "ON")]
+    assert sent == [(power.Broker("localhost", 1883), "plug", "ON")]
 
 
 def test_parse_plugs_accepts_queue_names_with_spaces():
@@ -242,3 +255,86 @@ def test_warn_unknown_queues_accepts_card_names(monkeypatch, caplog):
         manager._warn_unknown_queues()
     unknown = [r.message for r in caplog.records if "unknown queue" in r.message]
     assert unknown == ["auto power: POWER_PLUGS names unknown queue 'ghost'"]
+
+
+def test_publish_passes_mqtt_credentials(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        subprocess, "run",
+        lambda cmd, **kw: calls.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", ""),
+    )
+    power.publish(power.Broker("broker", 1883, "z2m", "secret"), "plug", "ON")
+    assert calls[0][-4:] == ["-u", "z2m", "-P", "secret"]
+
+
+# --- POWER_MAX_ON ---
+
+def test_parse_max_on_minutes():
+    assert power.parse_max_on("") == 3600
+    assert power.parse_max_on("0") == 0
+    with pytest.raises(power.PowerConfigError):
+        power.parse_max_on("-5")
+
+
+def test_stuck_jobs_switch_plug_off_after_max_on():
+    c = power.PowerController({"brother": "plug"}, off_delay=600, max_on=3600)
+    assert c.tick({"brother": 1}, now=0) == [("plug", "ON")]
+    assert c.tick({"brother": 1}, now=3599) == [("plug", "ON")]  # periodic republish
+    assert c.tick({"brother": 1}, now=3600) == [("plug", "OFF")]
+    assert c.gave_up("plug")
+    # The same stuck job neither switches it on again nor republishes
+    assert c.tick({"brother": 1}, now=3700) == []
+    assert c.tick({"brother": 1}, now=99999) == []
+
+
+def test_new_job_after_max_on_switches_plug_on_again():
+    c = power.PowerController({"brother": "plug"}, off_delay=600, max_on=3600)
+    c.tick({"brother": 2}, now=0)
+    c.tick({"brother": 2}, now=3600)
+    # One stuck job cancelled, then a new one: count back to 2, above the low
+    assert c.tick({"brother": 1}, now=3700) == []
+    assert c.tick({"brother": 2}, now=3800) == [("plug", "ON")]
+    assert not c.gave_up("plug")
+
+
+def test_empty_queue_after_max_on_sends_no_second_off():
+    c = power.PowerController({"brother": "plug"}, off_delay=60, max_on=600)
+    c.tick({"brother": 1}, now=0)
+    assert c.tick({"brother": 1}, now=600) == [("plug", "OFF")]
+    assert c.tick({}, now=700) == []
+    assert c.tick({}, now=2000) == []
+    assert not c.gave_up("plug")
+    assert c.tick({"brother": 1}, now=2100) == [("plug", "ON")]
+
+
+def test_max_on_zero_disables_the_cap():
+    c = power.PowerController({"brother": "plug"}, off_delay=600, max_on=0)
+    c.tick({"brother": 1}, now=0)
+    assert c.tick({"brother": 1}, now=10**6) == [("plug", "ON")]
+
+
+def test_failed_max_on_off_is_retried_soon():
+    c = power.PowerController({"brother": "plug"}, off_delay=600, max_on=3600)
+    c.tick({"brother": 1}, now=0)
+    assert c.tick({"brother": 1}, now=3600) == [("plug", "OFF")]
+    c.publish_failed("plug", "OFF", now=3600)
+    assert c.tick({"brother": 1}, now=3602) == []
+    assert c.tick({"brother": 1}, now=3610) == [("plug", "OFF")]
+
+
+def test_list_printers_reports_power_gave_up(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import main
+
+    manager = power.PowerManager(
+        power.PowerController({"brother": "plug"}, off_delay=600, max_on=60), power.Broker("b")
+    )
+    manager.controller.tick({"brother": 1}, now=0)
+    manager.controller.tick({"brother": 1}, now=60)
+    monkeypatch.setattr(main, "power_manager", manager)
+    monkeypatch.setattr(cups_service, "list_printers", lambda: [
+        {"name": "Brother", "state": "idle", "uri": "socket://1.2.3.4:9100"},
+        {"name": "Other", "state": "idle", "uri": "socket://1.2.3.5:9100"},
+    ])
+    body = TestClient(main.app).get("/api/printers").json()
+    assert [(p["power_plug"], p["power_gave_up"]) for p in body] == [("plug", True), (None, False)]
