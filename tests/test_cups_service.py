@@ -235,6 +235,16 @@ def test_list_printers_empty_when_no_queue(monkeypatch):
     assert cups_service.list_printers() == []
 
 
+def test_list_printers_raises_when_cups_is_unreachable(monkeypatch):
+    # A dead cupsd must not read as "no printer": the UI would show an empty
+    # list and the Docker healthcheck (which calls this route) would pass.
+    monkeypatch.setattr(subprocess, "run", fake_run(
+        [], returncode=1, stderr="lpstat: Bad file descriptor"
+    ))
+    with pytest.raises(cups_service.CupsError, match="Bad file descriptor"):
+        cups_service.list_printers()
+
+
 def test_fuzzy_match_lists_drivers_once(monkeypatch):
     calls = []
     monkeypatch.setattr(subprocess, "run", fake_run(calls, stdout=FULL_LPINFO_OUTPUT))

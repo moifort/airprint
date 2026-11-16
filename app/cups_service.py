@@ -18,6 +18,8 @@ COMMAND_TIMEOUT = 60
 AVAHI_TIMEOUT = 15
 # CUPS caps queue names at 127 bytes; leave room for a "_N" dedup suffix
 MAX_QUEUE_NAME = 100
+# cupsd's status message for CUPS-Get-Printers when no queue exists
+NO_DESTINATIONS = "No destinations added"
 
 _VALID_QUEUE_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
 # lpstat prints "printer X is idle", "printer X now printing X-1" and
@@ -220,9 +222,13 @@ def list_printers() -> list[dict]:
         output = _run(["lpstat", "-p", "-v", "-o"]).stdout
     except CupsTimeout:
         raise
-    except CupsError:
-        # lpstat fails when no printer is configured
-        return []
+    except CupsError as exc:
+        # lpstat exits 1 with cupsd's "No destinations added." when no queue
+        # exists; any other failure (cupsd down) must surface, not read as
+        # an empty list — the Docker healthcheck relies on it.
+        if NO_DESTINATIONS in str(exc):
+            return []
+        raise
     printers = parse_lpstat(output)
     jobs = parse_job_counts(output)
     for printer in printers:
