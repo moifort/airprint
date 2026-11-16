@@ -221,6 +221,11 @@ button.link {
   color: var(--muted);
 }
 
+/* Scan failure above the previous results */
+.scan-error { margin-bottom: 1rem; }
+.scan-error .error { margin-top: 0; }
+.scan-error button { margin-top: 0.5rem; }
+
 .steps { list-style: none; margin: 0.4rem 0 0; padding: 0; }
 
 .steps li {

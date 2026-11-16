@@ -14,6 +14,7 @@ const state = {
   //   { status: "gone" }                 — hidden (success shown, dismissed)
   cards: new Map(),
   scanning: false,
+  scanError: null, // last scan failure, shown above the previous results
 };
 
 const addInFlight = () =>
@@ -107,6 +108,7 @@ function renderPrinters() {
         <span class="model">${esc(p.make_model || "")}</span>
         ${showMessage ? `<span class="queue-message">${esc(p.message)}</span>` : ""}
         ${p.power_plug ? `<span class="power">Auto power: ${esc(p.power_plug)}</span>` : ""}
+        ${p.power_gave_up ? `<span class="queue-message">Auto power switched the printer off: these jobs never printed. A new job powers it on again.</span>` : ""}
         <span class="badges">
           <span class="badge ${stopped ? "warn" : "ok"}">
             <span aria-hidden="true">${stopped ? "⚠︎" : "✓"}</span>
@@ -229,8 +231,9 @@ document.addEventListener("click", async (e) => {
 
 $("rescan-btn").addEventListener("click", scanNetwork);
 
-// A rescan replaces state.scanned and the whole section: never run one while
+// A rescan replaces state.scanned and the card states: never run one while
 // an add is in flight, it would wipe the progress card and shift indexes.
+// The reverse holds too: no add starts while a scan runs (buttons disabled).
 function syncRescanButton() {
   $("rescan-btn").disabled = state.scanning || addInFlight();
 }
@@ -238,21 +241,20 @@ function syncRescanButton() {
 async function scanNetwork() {
   if (state.scanning || addInFlight()) return;
   state.scanning = true;
-  state.cards.clear();
+  state.scanError = null;
   syncRescanButton();
-  $("detected-list").innerHTML = `
-    <p class="scanning" role="status"><span class="spinner" aria-hidden="true"></span> Scanning your network for printers… (up to a minute)</p>`;
+  // Previous results stay listed (actions disabled) until the new ones land
+  renderDetected();
   try {
-    state.scanned = await api("/api/scan");
-    state.scanning = false;
-    renderDetected();
+    const scanned = await api("/api/scan");
+    state.scanned = scanned;
+    state.cards.clear();
   } catch (err) {
-    $("detected-list").innerHTML = `
-      <p class="error">${esc(err.message)}</p>
-      <button data-retry-scan>Retry scan</button>`;
+    state.scanError = err.message;
   } finally {
     state.scanning = false;
     syncRescanButton();
+    renderDetected();
   }
 }
 
@@ -264,7 +266,19 @@ function hostOf(uri) {
 // at any time (poll, add step, another add finishing), it never loses a
 // progress, error or warning card.
 function renderDetected() {
-  if (state.scanning) return; // the scan owns this section right now
+  const list = $("detected-list");
+  const head = state.scanning
+    ? `<p class="scanning" role="status"><span class="spinner" aria-hidden="true"></span> ${
+      state.scanned.length ? "Rescanning" : "Scanning"} your network for printers… (up to a minute)</p>`
+    : state.scanError
+      ? `<div class="scan-error" role="alert"><p class="error">${esc(state.scanError)}</p>
+         <button data-retry-scan>Retry scan</button></div>`
+      : "";
+  // First scan, or a first scan that failed: nothing to list yet
+  if (state.scanning && !state.scanned.length) {
+    list.innerHTML = head;
+    return;
+  }
   const sharedHosts = new Set(state.shared.map((p) => hostOf(p.uri)).filter(Boolean));
   const isShared = (p) =>
     (p.ip && sharedHosts.has(p.ip)) || p.uris.some((u) => sharedHosts.has(hostOf(u)));
@@ -281,15 +295,14 @@ function renderDetected() {
     // though its printer is now shared
     if (card || !isShared(p)) detected.push({ p, i, card });
   });
-  const list = $("detected-list");
   if (detected.length === 0) {
-    list.innerHTML = `
-      <p class="empty">No new printer detected on the network. Use “Add manually” if yours is missing.</p>`;
+    list.innerHTML = head + (state.scanError && !state.scanned.length ? "" : `
+      <p class="empty">No new printer detected on the network. Use “Add manually” if yours is missing.</p>`);
     return;
   }
   // Re-rendering replaces the buttons: keep keyboard focus where it was
   const focused = list.contains(document.activeElement) ? focusKey(document.activeElement) : null;
-  list.innerHTML = detected.map(renderDetectedCard).join("");
+  list.innerHTML = head + detected.map(renderDetectedCard).join("");
   if (focused) list.querySelector(focused)?.focus();
 }
 
@@ -300,6 +313,11 @@ function focusKey(el) {
 
 function renderDetectedCard({ p, i, card }) {
   const name = esc(p.make_model);
+  // A running scan is about to replace these cards and their indexes
+  const off = state.scanning ? " disabled" : "";
+  // The driver one-click add picked, once known: lets the user spot a wrong
+  // match before blaming the printer
+  const driver = card?.driver ? `<span class="model">Driver: ${esc(card.driver)}</span>` : "";
   if (!card) {
     return `
     <div class="card printer">
@@ -308,7 +326,8 @@ function renderDetectedCard({ p, i, card }) {
         <span class="model">${esc(p.ip || "")}</span>
       </div>
       <div class="printer-actions">
-        <button class="primary" data-add="${i}" aria-label="Add ${name}">Add</button>
+        <button data-manual="${i}" aria-label="Customize ${name} before adding"${off}>Customize…</button>
+        <button class="primary" data-add="${i}" aria-label="Add ${name}"${off}>Add</button>
       </div>
     </div>`;
   }
@@ -317,11 +336,12 @@ function renderDetectedCard({ p, i, card }) {
     <div class="card printer">
       <div class="printer-info">
         <strong>${name}</strong>
+        ${driver}
         <span class="error">${esc(card.message)}</span>
       </div>
       <div class="printer-actions">
-        <button data-add="${i}" aria-label="Retry adding ${name}">Retry</button>
-        <button data-manual="${i}" aria-label="Configure ${name} manually">Configure manually</button>
+        <button data-add="${i}" aria-label="Retry adding ${name}"${off}>Retry</button>
+        <button data-manual="${i}" aria-label="Configure ${name} manually"${off}>Configure manually</button>
       </div>
     </div>`;
   }
@@ -335,6 +355,7 @@ function renderDetectedCard({ p, i, card }) {
     <div class="card printer">
       <div class="printer-info">
         <strong>${name}</strong>
+        ${driver}
         <ul class="steps">
           ${ADD_STEPS.map((label, s) => {
             if (unconfirmed && s === last) return `<li class="unconfirmed"><span aria-hidden="true">⚠︎</span> ${label}</li>`;
@@ -394,11 +415,13 @@ function setCard(index, card, message) {
 
 async function addDetected(index) {
   const printer = state.scanned[index];
-  if (!printer || state.cards.get(index)?.status === "progress") return; // ignore double-clicks
+  // Ignore double-clicks, and clicks racing a scan that will reindex the list
+  if (!printer || state.scanning || state.cards.get(index)?.status === "progress") return;
   const name = printer.make_model;
   setCard(index, { status: "progress", step: 0 }, `Adding ${name}: ${ADD_STEPS[0]}…`);
   syncRescanButton();
   let created = false;
+  let driver = null;
   try {
     const params = new URLSearchParams({ q: printer.make_model });
     if (printer.device_id) params.set("device_id", printer.device_id);
@@ -408,38 +431,40 @@ async function addDetected(index) {
         "No bundled driver matches this printer — configure it manually with a driver search or a PPD file.");
       return;
     }
-    setCard(index, { status: "progress", step: 1 }, `Adding ${name}: ${ADD_STEPS[1]}…`);
+    driver = drivers[0].name;
+    setCard(index, { status: "progress", step: 1, driver },
+      `Adding ${name} with driver ${driver}: ${ADD_STEPS[1]}…`);
     const { queue } = await api("/api/printers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: printer.make_model, uri: printer.uris[0], ppd: drivers[0].ppd }),
     });
     created = true;
-    setCard(index, { status: "progress", step: 2 }, `Adding ${name}: ${ADD_STEPS[2]}…`);
+    setCard(index, { status: "progress", step: 2, driver }, `Adding ${name}: ${ADD_STEPS[2]}…`);
     refreshPrinters();
     const advertised = await waitForAirPrint(queue);
-    finishAdd(index, name, advertised);
+    finishAdd(index, name, advertised, driver);
   } catch (err) {
     if (created) {
       // The queue exists; a failed check must not offer a Retry that would
       // create a duplicate queue.
-      finishAdd(index, name, false);
+      finishAdd(index, name, false, driver);
     } else {
-      failAdd(index, name, err.message);
+      failAdd(index, name, err.message, driver);
     }
   } finally {
     syncRescanButton();
   }
 }
 
-function failAdd(index, name, message) {
-  setCard(index, { status: "error", message }, `Could not add ${name}: ${message}`);
+function failAdd(index, name, message, driver = null) {
+  setCard(index, { status: "error", message, driver }, `Could not add ${name}: ${message}`);
 }
 
 // Success shows briefly, then the card leaves the list (the printer is now
 // shared). A warning stays until dismissed or a rescan.
-function finishAdd(index, name, advertised) {
-  setCard(index, { status: "done", advertised },
+function finishAdd(index, name, advertised, driver) {
+  setCard(index, { status: "done", advertised, driver },
     advertised ? `${name} is now available on your Apple devices.` : `${name}: ${UNCONFIRMED_MESSAGE}`);
   if (!advertised) return;
   const card = state.cards.get(index);
@@ -453,6 +478,7 @@ function finishAdd(index, name, advertised) {
 
 function configureManually(index) {
   const printer = state.scanned[index];
+  if (!printer || state.scanning) return;
   state.cards.delete(index); // the error card goes back to a plain "Add"
   renderDetected();
   resetWizard();
