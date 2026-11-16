@@ -127,6 +127,21 @@ def test_parse_avahi_browse_maps_instance_to_ipv4():
     assert addresses == {"Brother HL-1210W series": "192.168.1.146"}
 
 
+def test_parse_avahi_browse_decodes_utf8_and_escaped_dots():
+    # avahi escapes every UTF-8 byte as \DDD, and dots/backslashes as \. \\;
+    # lpinfo's dnssd URI carries the same name percent-encoded as UTF-8
+    output = (
+        "=;eth0;IPv4;Imprimante\\032d\\226\\128\\153atelier;PDL Printer;local;"
+        "a.local;192.168.1.20;9100;\"\"\n"
+        "=;eth0;IPv4;Printer\\032v2\\.0\\032\\\\\\032x;PDL Printer;local;"
+        "b.local;192.168.1.21;9100;\"\"\n"
+    )
+    assert detect.parse_avahi_browse(output) == {
+        "Imprimante d\u2019atelier": "192.168.1.20",
+        "Printer v2.0 \\ x": "192.168.1.21",
+    }
+
+
 def test_scan_resolves_ip_less_dnssd_entries(monkeypatch):
     lpinfo_output = (
         "Device: uri = dnssd://Brother%20HL-1210W%20series._pdl-datastream._tcp.local/?uuid=e3248000\n"

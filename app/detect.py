@@ -155,9 +155,18 @@ def probe(ip: str) -> dict:
     }
 
 
-# avahi-browse escapes special chars as \DDD (decimal), e.g. \032 for space
-_AVAHI_ESCAPE = re.compile(r"\\(\d{3})")
+# avahi-browse escapes every byte outside [A-Za-z0-9_-] as \DDD (decimal,
+# one per UTF-8 byte: "é" is \195\169), except dots and backslashes: \. \\
+_AVAHI_ESCAPE = re.compile(rb"\\(\d{3}|.)")
 _DNSSD_INSTANCE = re.compile(r"^dnssd://([^/]+?)\._")
+
+
+def _avahi_unescape(label: str) -> str:
+    raw = _AVAHI_ESCAPE.sub(
+        lambda m: bytes([int(m.group(1))]) if m.group(1).isdigit() else m.group(1),
+        label.encode(),
+    )
+    return raw.decode("utf-8", errors="replace")
 
 
 def parse_avahi_browse(output: str) -> dict[str, str]:
@@ -170,8 +179,7 @@ def parse_avahi_browse(output: str) -> dict[str, str]:
     for line in output.splitlines():
         parts = line.split(";")
         if len(parts) >= 9 and parts[0] == "=" and parts[2] == "IPv4":
-            name = _AVAHI_ESCAPE.sub(lambda m: chr(int(m.group(1))), parts[3])
-            addresses[name] = parts[7]
+            addresses[_avahi_unescape(parts[3])] = parts[7]
     return addresses
 
 
