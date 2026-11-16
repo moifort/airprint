@@ -69,6 +69,15 @@ def test_queue_name_sanitizes():
         cups_service.queue_name("///")
 
 
+def test_queue_name_never_starts_with_a_dash():
+    # cupsenable and cancel parse a leading "-" as options: such a queue
+    # could never be resumed or cleared
+    assert cups_service.queue_name("- Bureau") == "Bureau"
+    assert cups_service.queue_name("--x") == "x"
+    with pytest.raises(cups_service.CupsError):
+        cups_service.queue_name("--")
+
+
 def test_list_drivers_prefers_device_id(monkeypatch):
     calls = []
     monkeypatch.setattr(subprocess, "run", fake_run(calls, stdout=LPINFO_OUTPUT))

@@ -63,7 +63,8 @@ def queue_name(friendly_name: str) -> str:
     dropped, so the queue name stays recognizable."""
     name = unicodedata.normalize("NFKD", friendly_name)
     name = name.encode("ascii", "ignore").decode().strip().replace(" ", "_")
-    name = re.sub(r"[^A-Za-z0-9_-]", "", name)[:MAX_QUEUE_NAME]
+    # No leading "-": cupsenable and cancel would parse the name as options
+    name = re.sub(r"[^A-Za-z0-9_-]", "", name).lstrip("-_")[:MAX_QUEUE_NAME]
     if not name:
         raise CupsError("invalid printer name")
     return name
