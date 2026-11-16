@@ -1,11 +1,11 @@
 name: Tests
 
 on:
+  # main and v* tags are tested by docker-publish.yml, which calls this
+  # workflow as the gate for the image: running here too doubled every run
   push:
-    branches: ["**"]
-    tags: ["v*"]
+    branches-ignore: [main]
   pull_request:
-  # Gate for the Docker image: docker-publish.yml calls this workflow first
   workflow_call:
 
 jobs:
