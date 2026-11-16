@@ -21,7 +21,9 @@ MAX_QUEUE_NAME = 100
 # cupsd's status message for CUPS-Get-Printers when no queue exists
 NO_DESTINATIONS = "No destinations added"
 
-_VALID_QUEUE_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+# No leading "-": cancel, cupsenable, lp and lpadmin would parse the name as
+# options (`cancel -a -x` cancels and purges every job on every queue)
+_VALID_QUEUE_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]*$")
 # lpstat prints "printer X is idle", "printer X now printing X-1" and
 # "printer X disabled" — keep the state word, not the "is"/"now" filler
 _LPSTAT_PRINTER = re.compile(r"^printer (\S+) (?:is |now )?(\w+)")
@@ -174,13 +176,15 @@ def rank_drivers(drivers: list[dict], make_model: str) -> list[dict]:
 
     CUPS returns family matches in an arbitrary order and the UI picks the
     first one; rank by model-number family first, full-name similarity as
-    tie-breaker."""
+    tie-breaker. Entries for the same model normalise identically and tie;
+    among those, prefer the one OpenPrinting flags "(recommended)"."""
     target = _normalize_model(make_model)
 
-    def score(driver: dict) -> float:
+    def score(driver: dict) -> tuple[float, bool]:
         name = _normalize_model(driver["name"])
         seq = difflib.SequenceMatcher(None, target, name).ratio()
-        return 0.5 * _number_prefix_score(target, name) + 0.5 * seq
+        recommended = "(recommended)" in driver["name"].lower()
+        return 0.5 * _number_prefix_score(target, name) + 0.5 * seq, recommended
 
     return sorted(drivers, key=score, reverse=True)
 
@@ -239,14 +243,21 @@ def list_printers() -> list[dict]:
 
 
 def _existing_queues() -> set[str]:
+    """Local queue names, lower-cased (CUPS names are case-insensitive).
+
+    `lpstat -p` rather than `-e`: `-e` also lists printers discovered over
+    DNS-SD, which are not queues. Only "no queue at all" reads as empty: any
+    other failure must propagate, or add_printer would skip deduplication
+    and `lpadmin -p` could silently reconfigure an existing queue."""
     try:
-        output = _run(["lpstat", "-e"]).stdout
+        output = _run(["lpstat", "-p"]).stdout
     except CupsTimeout:
         raise
-    except CupsError:
-        # lpstat -e fails when no printer is configured
-        return set()
-    return {line.strip().lower() for line in output.splitlines() if line.strip()}
+    except CupsError as exc:
+        if NO_DESTINATIONS in str(exc):
+            return set()
+        raise
+    return {printer["name"].lower() for printer in parse_lpstat(output)}
 
 
 # Name deduplication and queue creation must be atomic across requests

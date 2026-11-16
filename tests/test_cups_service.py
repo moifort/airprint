@@ -140,7 +140,11 @@ def test_add_printer_never_overwrites_existing_queue(monkeypatch):
 
     def fake(cmd, **kwargs):
         calls.append(cmd)
-        out = "HP_LaserJet_1320\nhp_laserjet_1320_2\n" if cmd == ["lpstat", "-e"] else ""
+        out = (
+            "printer HP_LaserJet_1320 is idle.  enabled since Thu 12 Jun 2026\n"
+            "printer hp_laserjet_1320_2 disabled since Thu 12 Jun 2026 -\n"
+            "\tUnable to connect to printer\n"
+        ) if cmd == ["lpstat", "-p"] else ""
         return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake)
@@ -295,3 +299,73 @@ def test_parse_lpstat_now_printing_state():
     )
     assert printers == [{"name": "Atelier", "state": "printing",
                          "uri": "socket://192.168.1.146:9100", "message": None}]
+
+
+def test_existing_queues_lists_local_queues_only(monkeypatch):
+    calls = []
+    monkeypatch.setattr(subprocess, "run", fake_run(calls, stdout=LPSTAT_P))
+    assert cups_service._existing_queues() == {"bureau", "salon"}
+    assert calls == [["lpstat", "-p"]]
+
+
+def test_existing_queues_empty_when_no_queue(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", fake_run(
+        [], returncode=1, stderr="lpstat: No destinations added."
+    ))
+    assert cups_service._existing_queues() == set()
+
+
+def test_add_printer_aborts_when_lpstat_fails(monkeypatch):
+    # Without the list of taken names, lpadmin -p could overwrite a queue
+    calls = []
+
+    def fake(cmd, **kwargs):
+        calls.append(cmd)
+        rc = 1 if cmd[0] == "lpstat" else 0
+        return subprocess.CompletedProcess(cmd, rc, stdout="", stderr="lpstat: Bad file descriptor")
+
+    monkeypatch.setattr(subprocess, "run", fake)
+    with pytest.raises(cups_service.CupsError, match="Bad file descriptor"):
+        cups_service.add_printer("X", "socket://1.2.3.4:9100", "everywhere")
+    assert not any(c[0] == "lpadmin" for c in calls)
+
+
+@pytest.mark.parametrize("name", ["-x", "-a", "--help", "-"])
+@pytest.mark.parametrize("fn", [
+    cups_service.delete_printer, cups_service.resume_printer,
+    cups_service.cancel_jobs, cups_service.print_test_page,
+    cups_service.is_advertised,
+])
+def test_queue_names_starting_with_a_dash_are_rejected(monkeypatch, fn, name):
+    # `cancel -a -x` would cancel and purge every job on every queue
+    calls = []
+    monkeypatch.setattr(subprocess, "run", fake_run(calls))
+    with pytest.raises(cups_service.CupsError, match="invalid queue name"):
+        fn(name)
+    assert calls == []
+
+
+def test_queue_names_may_start_with_an_underscore_or_digit(monkeypatch):
+    calls = []
+    monkeypatch.setattr(subprocess, "run", fake_run(calls))
+    cups_service.cancel_jobs("_Bureau")
+    cups_service.cancel_jobs("2nd-floor")
+    assert calls == [["cancel", "-a", "_Bureau"], ["cancel", "-a", "2nd-floor"]]
+
+
+def test_rank_drivers_prefers_recommended_among_same_model():
+    drivers = [
+        {"ppd": "foomatic:HP-LaserJet_1320-Postscript.ppd", "name": "HP LaserJet 1320 Foomatic/Postscript"},
+        {"ppd": "foomatic:HP-LaserJet_1320-hpcups.ppd", "name": "HP LaserJet 1320 Foomatic/hpcups (Recommended)"},
+    ]
+    ranked = cups_service.rank_drivers(drivers, "HP LaserJet 1320")
+    assert ranked[0]["ppd"] == "foomatic:HP-LaserJet_1320-hpcups.ppd"
+
+
+def test_rank_drivers_recommended_never_beats_a_better_model_match():
+    drivers = [
+        {"ppd": "foomatic:Brother-HL-2170W-hl1250.ppd", "name": "Brother HL-2170W Foomatic/hl1250 (recommended)"},
+        {"ppd": "drv:///brlaser.drv/br1200.ppd", "name": "Brother HL-1200 series, using brlaser v6"},
+    ]
+    ranked = cups_service.rank_drivers(drivers, "Brother HL-1210W series")
+    assert ranked[0]["ppd"] == "drv:///brlaser.drv/br1200.ppd"
