@@ -21,8 +21,8 @@
         <button id="show-wizard" aria-expanded="false" aria-controls="wizard">Add manually</button>
       </div>
       <p id="printers-error" class="error hidden" role="alert"></p>
-      <p id="printers-notice" class="success hidden" role="status"></p>
-      <div id="printers-list" aria-live="polite"></div>
+      <p id="printers-notice" class="notice success hidden" role="status"></p>
+      <div id="printers-list"></div>
     </section>
 
     <section id="detected-section">
@@ -30,7 +30,9 @@
         <h2>Detected on your network</h2>
         <button id="rescan-btn">Rescan</button>
       </div>
-      <div id="detected-list" aria-live="polite"></div>
+      <!-- Add progress is announced here: the cards are re-rendered -->
+      <p id="detected-status" class="visually-hidden" role="status"></p>
+      <div id="detected-list"></div>
     </section>
 
     <section id="wizard" class="card hidden">
@@ -62,7 +64,8 @@
             <button id="search-btn">Search</button>
           </div>
           <label for="ppd-file" class="ppd-label">Or provide a PPD file</label>
-          <input id="ppd-file" type="file" accept=".ppd">
+          <input id="ppd-file" type="file" accept=".ppd" aria-describedby="ppd-hint">
+          <p id="ppd-hint" class="hint hidden">This PPD file will be used instead of the selected driver.</p>
         </details>
 
         <label for="uri-select">Connection</label>
