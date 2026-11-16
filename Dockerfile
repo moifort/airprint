@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 \
         python3-pip \
         curl \
+        tini \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/airprint
@@ -49,4 +50,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s \
     CMD curl -fs "http://localhost:${UI_PORT}/api/printers" \
         && kill -0 "$(cat /run/avahi-daemon/pid)" || exit 1
 
-ENTRYPOINT ["/entrypoint.sh"]
+# tini as PID 1 reaps orphaned CUPS filter/backend processes and forwards
+# docker stop's SIGTERM to the entrypoint, which shuts the daemons down.
+ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]

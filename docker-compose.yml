@@ -5,6 +5,7 @@ services:
     # Required: AirPrint relies on mDNS (multicast), which does not
     # cross Docker's bridge network.
     network_mode: host
+    # The container exits if CUPS or Avahi dies: this brings it back
     restart: unless-stopped
     environment:
       UI_PORT: "8080"

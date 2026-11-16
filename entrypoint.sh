@@ -27,7 +27,10 @@ fi
 dbus-daemon --system
 avahi-daemon --daemonize --no-drop-root
 
-/usr/sbin/cupsd
+# Foreground under this script (not daemonized) so the watchdog below holds
+# its PID; with ErrorLog stderr its errors land in `docker logs`.
+/usr/sbin/cupsd -f &
+CUPSD_PID=$!
 
 # Wait until cupsd responds before enabling printer sharing
 for _ in $(seq 1 30); do
@@ -45,4 +48,44 @@ for queue in $(lpstat -p 2>/dev/null | awk '$1 == "printer" {print $2}'); do
 done
 
 cd /opt/airprint
-exec uvicorn app.main:app --host 0.0.0.0 --port "$UI_PORT"
+uvicorn app.main:app --host 0.0.0.0 --port "$UI_PORT" &
+UVICORN_PID=$!
+
+# --- Supervision ---------------------------------------------------------------
+# Docker only restarts a container whose main process exits: a dead cupsd,
+# Avahi or dbus would otherwise leave the bridge "unhealthy" forever, with
+# nothing announced or printed. Exit as soon as one of them is gone (or cupsd
+# stops answering) and let `restart: unless-stopped` start over cleanly.
+set +e
+
+shutdown() {
+    # Goodbye packets: Apple devices drop the printers instead of timing out
+    avahi-daemon --kill 2>/dev/null
+    kill -TERM "$UVICORN_PID" "$CUPSD_PID" 2>/dev/null
+    wait "$UVICORN_PID" "$CUPSD_PID"
+    exit "${1:-0}"
+}
+trap 'shutdown 0' TERM INT
+
+alive_pidfile() { [ -f "$1" ] && kill -0 "$(cat "$1")" 2>/dev/null; }
+
+CUPSD_FAILURES=0
+while true; do
+    # Backgrounded sleep: a SIGTERM runs the trap at once, not after the sleep
+    sleep 10 & wait $!
+    for check in "uvicorn:kill -0 $UVICORN_PID" "cupsd:kill -0 $CUPSD_PID" \
+                 "avahi-daemon:alive_pidfile /run/avahi-daemon/pid" \
+                 "dbus-daemon:alive_pidfile /run/dbus/pid"; do
+        if ! eval "${check#*:}" 2>/dev/null; then
+            echo "watchdog: ${check%%:*} is gone, exiting so Docker restarts the container" >&2
+            shutdown 1
+        fi
+    done
+    # A hung cupsd keeps its PID: three silent checks in a row (30 s) count
+    if timeout 10 lpstat -r 2>/dev/null | grep -q "is running"; then
+        CUPSD_FAILURES=0
+    elif [ $((CUPSD_FAILURES += 1)) -ge 3 ]; then
+        echo "watchdog: cupsd is not answering, exiting so Docker restarts the container" >&2
+        shutdown 1
+    fi
+done
