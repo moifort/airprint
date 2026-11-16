@@ -192,3 +192,53 @@ def test_manager_step_reports_publish_failure(monkeypatch):
     monkeypatch.setattr(power, "publish", lambda *a: sent.append(a))
     manager.step(now=10)
     assert sent == [("localhost", 1883, "plug", "ON")]
+
+
+def test_parse_plugs_accepts_queue_names_with_spaces():
+    # The printer card shows "Brother HL-1210W series" for the queue
+    # Brother_HL-1210W_series; CUPS queue names cannot contain spaces
+    assert power.parse_plugs("Brother HL-1210W series=Atelier Plug") == {
+        "brother_hl-1210w_series": "Atelier Plug",
+    }
+
+
+def test_plug_for_treats_spaces_and_underscores_alike():
+    c = make({"Brother HL-1210W series": "plug"})
+    assert c.plug_for("Brother_HL-1210W_series") == "plug"
+    c = make({"Brother_HL-1210W_series": "plug"})
+    assert c.plug_for("brother hl-1210w series") == "plug"
+    assert c.tick({"Brother_HL-1210W_series": 1}, now=0) == [("plug", "ON")]
+
+
+def test_manager_logs_lpstat_failure_once_then_recovery(monkeypatch, caplog):
+    manager = power.PowerManager.from_env({"POWER_PLUGS": "brother=plug"})
+    monkeypatch.setattr(power, "publish", lambda *a: None)
+
+    def failing():
+        raise cups_service.CupsError("cupsd down")
+
+    monkeypatch.setattr(power, "job_counts", failing)
+    with caplog.at_level("INFO", logger=power.log.name):
+        for now in range(0, 20, 2):
+            manager.step(now=now)
+        failures = [r for r in caplog.records if "lpstat failed" in r.message]
+        assert len(failures) == 1 and failures[0].levelname == "WARNING"
+
+        monkeypatch.setattr(power, "job_counts", lambda: {})
+        manager.step(now=20)
+        manager.step(now=22)
+        recovered = [r for r in caplog.records if "lpstat recovered" in r.message]
+        assert len(recovered) == 1 and recovered[0].levelname == "INFO"
+
+        monkeypatch.setattr(power, "job_counts", failing)
+        manager.step(now=24)
+        assert len([r for r in caplog.records if "lpstat failed" in r.message]) == 2
+
+
+def test_warn_unknown_queues_accepts_card_names(monkeypatch, caplog):
+    manager = power.PowerManager.from_env({"POWER_PLUGS": "Brother HL-1210W series=plug,Ghost=x"})
+    monkeypatch.setattr(cups_service, "_existing_queues", lambda: {"brother_hl-1210w_series"})
+    with caplog.at_level("WARNING", logger=power.log.name):
+        manager._warn_unknown_queues()
+    unknown = [r.message for r in caplog.records if "unknown queue" in r.message]
+    assert unknown == ["auto power: POWER_PLUGS names unknown queue 'ghost'"]

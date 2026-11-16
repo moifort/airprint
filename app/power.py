@@ -38,11 +38,20 @@ class PowerConfigError(ValueError):
     pass
 
 
-def parse_plugs(value: str) -> dict[str, str]:
-    """`POWER_PLUGS="<queue>=<plug>,…"` → {queue (lowercase): plug}.
+def queue_key(queue: str) -> str:
+    """Normalised queue name for plug lookups.
 
-    CUPS queue names are case-insensitive; plug names are Zigbee2MQTT
-    friendly names, kept verbatim (they may contain spaces or slashes)."""
+    CUPS queue names are case-insensitive and cannot contain spaces, while
+    the UI shows them with spaces for underscores: accept either form, so a
+    name copied from a printer card still matches its queue."""
+    return queue.strip().lower().replace(" ", "_")
+
+
+def parse_plugs(value: str) -> dict[str, str]:
+    """`POWER_PLUGS="<queue>=<plug>,…"` → {queue key: plug} (see queue_key).
+
+    Plug names are Zigbee2MQTT friendly names, kept verbatim (they may
+    contain spaces or slashes)."""
     plugs = {}
     for entry in filter(None, (e.strip() for e in value.split(","))):
         queue, sep, plug = (part.strip() for part in entry.partition("="))
@@ -50,7 +59,7 @@ def parse_plugs(value: str) -> dict[str, str]:
             raise PowerConfigError(f"invalid POWER_PLUGS entry {entry!r} (expected queue=plug)")
         if any(c in plug for c in "+#"):
             raise PowerConfigError(f"invalid plug name {plug!r} (MQTT wildcards)")
-        plugs[queue.lower()] = plug
+        plugs[queue_key(queue)] = plug
     return plugs
 
 
@@ -84,12 +93,12 @@ class PowerController:
     """Pure state machine: job counts in, plug commands out. No I/O."""
 
     def __init__(self, plugs: dict[str, str], off_delay: float):
-        self._plugs = {queue.lower(): plug for queue, plug in plugs.items()}
+        self._plugs = {queue_key(queue): plug for queue, plug in plugs.items()}
         self._off_delay = off_delay
         self._state = {plug: _PlugState() for plug in self._plugs.values()}
 
     def plug_for(self, queue: str) -> str | None:
-        return self._plugs.get(queue.lower())
+        return self._plugs.get(queue_key(queue))
 
     def tick(self, job_counts: dict[str, int], now: float) -> list[tuple[str, str]]:
         busy = {plug: 0 for plug in self._state}
@@ -146,6 +155,7 @@ class PowerManager:
     def __init__(self, controller: PowerController, host: str, port: int):
         self.controller = controller
         self._host, self._port = host, port
+        self._lpstat_failing = False
 
     @classmethod
     def from_env(cls, env) -> "PowerManager | None":
@@ -166,9 +176,15 @@ class PowerManager:
         try:
             counts = job_counts()
         except cups_service.CupsError as exc:
-            # Unknown is not "no jobs": skip rather than risk an OFF
-            log.warning("auto power: lpstat failed: %s", exc)
+            # Unknown is not "no jobs": skip rather than risk an OFF. Log once
+            # per outage, not every POLL_INTERVAL.
+            if not self._lpstat_failing:
+                self._lpstat_failing = True
+                log.warning("auto power: lpstat failed, pausing until it recovers: %s", exc)
             return
+        if self._lpstat_failing:
+            self._lpstat_failing = False
+            log.info("auto power: lpstat recovered")
         for plug, command in self.controller.tick(counts, now):
             try:
                 publish(self._host, self._port, plug, command)

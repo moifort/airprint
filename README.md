@@ -70,7 +70,7 @@ Keep the printer switched off and let the bridge power it on when a job comes in
       POWER_OFF_DELAY: "10"
 ```
 
-The queue name is the one shown on the printer card; the plug name is the device's friendly name in Zigbee2MQTT. When a job arrives, the bridge publishes `{"state":"ON"}` to `zigbee2mqtt/<plug>/set`; CUPS holds the job until the printer answers, then prints it. `POWER_OFF_DELAY` minutes after the queue empties, the plug is switched off — only if a job went through, so a plug switched on by hand is left alone. The printer card shows **Auto power: \<plug\>** when configured.
+The queue name is the one shown on the printer card, with spaces (`Brother HL-1210W series`) or underscores (`Brother_HL-1210W_series`), case-insensitive; the plug name is the device's friendly name in Zigbee2MQTT. When a job arrives, the bridge publishes `{"state":"ON"}` to `zigbee2mqtt/<plug>/set`; CUPS holds the job until the printer answers, then prints it. `POWER_OFF_DELAY` minutes after the queue empties, the plug is switched off — only if a job went through, so a plug switched on by hand is left alone. The printer card shows **Auto power: \<plug\>** when configured.
 
 ### Security note
 
