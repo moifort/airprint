@@ -32,11 +32,19 @@ avahi-daemon --daemonize --no-drop-root
 /usr/sbin/cupsd -f &
 CUPSD_PID=$!
 
-# Wait until cupsd responds before enabling printer sharing
-for _ in $(seq 1 30); do
-    lpstat -r >/dev/null 2>&1 && break
+# `lpstat -r` exits 0 even when the scheduler is down: match its output.
+# (Daemonized cupsd used to return only once ready, which hid this; in the
+# foreground it needs a moment before the socket accepts connections.)
+cupsd_ready() { LC_ALL=C lpstat -r 2>/dev/null | grep -qx "scheduler is running"; }
+
+for _ in $(seq 1 60); do
+    cupsd_ready && break
     sleep 1
 done
+if ! cupsd_ready; then
+    echo "cupsd did not start within 60 s" >&2
+    exit 1
+fi
 cupsctl --share-printers
 
 # Queues created before the retry-job default: a printer switched off for a
@@ -82,7 +90,7 @@ while true; do
         fi
     done
     # A hung cupsd keeps its PID: three silent checks in a row (30 s) count
-    if timeout 10 lpstat -r 2>/dev/null | grep -q "is running"; then
+    if timeout 10 bash -c "$(declare -f cupsd_ready); cupsd_ready"; then
         CUPSD_FAILURES=0
     elif [ $((CUPSD_FAILURES += 1)) -ge 3 ]; then
         echo "watchdog: cupsd is not answering, exiting so Docker restarts the container" >&2
